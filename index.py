@@ -14,9 +14,9 @@ MAIN_GUILD_ID = discord.Object(id=1397175419664470031)
 TARGET_ROLE_ID = 1442769995783475292
 TARGET_CATEGORY_ID = 1442769574285283399
 ALLOWED_ROLE_IDS = [
-    1408419247163576330,
-    1408419247163576330,
     1397185946541359214,
+    1397191790381236304,
+    1408419247163576330,
     1450851766911369337
 ]
 ROLES_TO_REMOVE = [
@@ -27,7 +27,6 @@ ROLES_TO_REMOVE = [
     1397191790381236304,
     1463754309245337672,
     1462487968705937418,
-    1450851766911369337
 ]
 
 DATA_FILE = "radao_data.json"
@@ -133,11 +132,11 @@ async def perform_radao(interaction, member, seconds, period, reason):
         await channel.set_permissions(member, read_messages=True, send_messages=True)
         await channel.send(f"Chào mừng {member.mention}! Bạn sẽ được thả tự do {discord_timestamp} ({full_date_timestamp}).")
         try:
-            await channel.send(f"Mày ra đảo vì **{reason}**")
+            await channel.send(f"Lý do ra đảo: **{reason}**")
             await channel.send("Ngồi đây bị Rick Lăn nhé :Đ!")
             await channel.send("https://tenor.com/view/rickroll-roll-rick-never-gonna-give-you-up-never-gonna-gif-22954713")
         except Exception:
-            await channel.send(f"Lần này méo có rick roll mày may đấy")
+            await channel.send(f"Lần này méo có rick roll may đấy")
 
         await asyncio.sleep(seconds)
 
@@ -192,9 +191,6 @@ async def on_ready():
                     if role_radao and role_radao not in member.roles:
                         await member.add_roles(role_radao)
                 asyncio.create_task(resume_radao_timer(guild, member_id, remaining))
-
-    print('------ HOÀN TẤT ------')
-
 async def resume_radao_timer(guild, member_id, remaining_seconds):
     await asyncio.sleep(remaining_seconds)
     member = guild.get_member(member_id)
@@ -242,7 +238,7 @@ async def on_member_join(member: discord.Member):
 @app_commands.describe(monkeys='Tag hoặc ID', period='VD: 10m, 1h', reason='Lý do')
 async def radao(interaction: discord.Interaction, monkeys: str, period: str, reason: str = "Thằng ban thích thì cho thôi"):
     if not has_allowed_role(interaction):
-        return await interaction.response.send_message("Mày không có quyền dùng lệnh này.", ephemeral=True)
+        return await interaction.response.send_message("Bạn không có quyền dùng lệnh này.", ephemeral=True)
 
     seconds = convert_time(period)
     if seconds == -1: return await interaction.response.send_message("Sai thời gian (vd: 10m, 1h).", ephemeral=True)
@@ -256,15 +252,14 @@ async def radao(interaction: discord.Interaction, monkeys: str, period: str, rea
         if m.top_role >= interaction.user.top_role:
             continue
         asyncio.create_task(perform_radao(interaction, m, seconds, period, reason))
-        msg.append(f"Bonk🔨 bà zà mài {m.mention} ra đảo trong {period} vì {reason}.")
+        msg.append(f"Bonk🔨 bà zà mài {m.mention} ra đảo trong {period} lý do: {reason}.")
 
     await interaction.followup.send("\n".join(msg))
 
 @bot.tree.command(name="vebo", description="Đưa khỉ về bờ.", guild=MAIN_GUILD_ID)
 async def vebo(interaction: discord.Interaction, monkeys: str):
     if not has_allowed_role(interaction):
-        return await interaction.response.send_message("Mày không có quyền dùng lệnh này.", ephemeral=True)
-
+        return await interaction.response.send_message("Bạn không có quyền dùng lệnh này.", ephemeral=True)
     targets = parse_monkeys(interaction.guild, monkeys)
     if not targets: return await interaction.response.send_message("Không tìm thấy ai.", ephemeral=True)
 
