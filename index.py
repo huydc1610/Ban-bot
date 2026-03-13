@@ -130,7 +130,7 @@ async def perform_radao(interaction, member, seconds, period, reason):
         )
 
         await channel.set_permissions(member, read_messages=True, send_messages=True)
-        await channel.send(f"Chào mừng {member.mention}! Bạn sẽ được thả tự do {discord_timestamp} ({full_date_timestamp}).")
+        await channel.send(f"Chào mừng {member.mention} đến với đảo! Về bờ sau {discord_timestamp} ({full_date_timestamp}).")
         try:
             await channel.send(f"Lý do ra đảo: **{reason}**")
             await channel.send("Ngồi đây bị Rick Lăn nhé :Đ!")
@@ -280,4 +280,9 @@ async def vebo(interaction: discord.Interaction, monkeys: str):
         else:
             msg.append(f"{m.mention} không ở đảo.")
     await interaction.followup.send("\n".join(msg))
+if __name__ == "__main__":
+    token = os.getenv("TOKEN") or os.getenv("DISCORD_TOKEN")
+    if not token:
+        raise SystemExit("Missing bot token in environment (TOKEN or DISCORD_TOKEN)")
+    bot.run(token)
 
