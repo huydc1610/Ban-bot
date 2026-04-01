@@ -28,7 +28,7 @@ ROLES_TO_REMOVE = [
     1463754309245337672,
     1462487968705937418,
 ]
-
+SELF_BAN_ALLOWED_ID = 1397455938214039723
 DATA_FILE = "radao_data.json"
 
 def load_radao_data():
@@ -249,7 +249,11 @@ async def radao(interaction: discord.Interaction, monkeys: str, period: str, rea
     await interaction.response.defer()
     msg = []
     for m in targets:
-        if m.top_role >= interaction.user.top_role:
+        if m.id == interaction.user.id:
+            if interaction.user.id != SELF_BAN_ALLOWED_ID:
+                msg.append("Đừng tự bắn vào chân thế chứ bro")
+                continue
+        elif m.top_role >= interaction.user.top_role:
             continue
         asyncio.create_task(perform_radao(interaction, m, seconds, period, reason))
         msg.append(f"Bonk🔨 bà zà mài {m.mention} ra đảo trong {period} lý do: {reason}.")
