@@ -30,9 +30,11 @@ ROLES_TO_REMOVE = [
 1408419247163576330,
 1462487968705937418,
 ]
+IGNORED_BANNED_ROLES = [
+    1487076845123010733
+]
 SELF_BAN_ALLOWED_ID = 1397455938214039723
-DATA_FILE = "radao_data.json"
-
+DATA_FILE = "/data/radao_data.json"
 def load_radao_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
@@ -119,6 +121,12 @@ async def perform_radao(interaction, member, seconds, period, reason):
 
     try:
         await member.add_roles(role_radao, reason=reason)
+        if member.voice and member.voice.channel:
+            try:
+                await member.move_to(None, reason=f"Ra đảo: {reason}")
+            except Exception:
+                pass
+
         end_time_timestamp = int(time.time() + seconds)
         discord_timestamp = f"<t:{end_time_timestamp}:R>"
         full_date_timestamp = f"<t:{end_time_timestamp}:F>"
@@ -255,8 +263,11 @@ async def radao(interaction: discord.Interaction, monkeys: str, period: str, rea
             if interaction.user.id != SELF_BAN_ALLOWED_ID:
                 msg.append("Đừng tự bắn vào chân thế chứ bro")
                 continue
-        elif m.top_role >= interaction.user.top_role:
-            continue
+        else:
+            effective_target_roles = [r for r in m.roles if r.id not in IGNORED_BANNED_ROLES]
+            effective_top_role = effective_target_roles[-1] if effective_target_roles else m.roles[0]
+            if effective_top_role >= interaction.user.top_role:
+                continue
         asyncio.create_task(perform_radao(interaction, m, seconds, period, reason))
         msg.append(f"Bonk🔨 bà zà mài {m.mention} ra đảo trong {period} lý do: {reason}.")
 
