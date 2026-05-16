@@ -7,4 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Tạo folder data cho persistent storage
+RUN mkdir -p /app/data
+
 CMD ["python", "index.py"]

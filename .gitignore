@@ -1,2 +1,5 @@
 fly.toml
 .env
+data/
+__pycache__/
+*.pyc
