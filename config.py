@@ -23,7 +23,7 @@ NHAPKHO_ROLE_ID = 1504949883264569374
 # Channel thông báo khi nhập kho
 NHAPKHO_LOG_CHANNEL_ID = 1504949644709335240
 
-# Các role được phép sử dụng lệnh /radao và /vebo
+# Các role được phép sử dụng lệnh /radao, /vebo, /nhapkho và /xuatkho
 ALLOWED_ROLE_IDS = [
     1489982960404009051,
     1397185946541359214,
@@ -31,7 +31,7 @@ ALLOWED_ROLE_IDS = [
     1450851766911369337,
 ]
 
-# Các role sẽ bị gỡ khi member ra đảo (và trả lại khi về bờ)
+# Các role sẽ bị gỡ khi member ra đảo hoặc nhập kho (và trả lại khi về bờ/xuất kho)
 ROLES_TO_REMOVE = [
     1489982960404009051,
     1397191790381236304,
