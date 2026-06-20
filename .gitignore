@@ -3,3 +3,6 @@ fly.toml
 data/
 __pycache__/
 *.pyc
+tests/
+docker-compose.yml
+dockerfile

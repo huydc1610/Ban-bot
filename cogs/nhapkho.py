@@ -4,10 +4,17 @@ from discord import app_commands
 import asyncio
 import os
 import json
-import re
 import time
 
 import config
+from cogs.common import (
+    apply_role_update,
+    convert_time,
+    effective_top_role,
+    has_allowed_role,
+    parse_monkeys,
+    role_ids_to_roles,
+)
 
 DATA_FILE = os.path.join(config.DATA_DIR, "nhapkho_data.json")
 
@@ -24,48 +31,6 @@ def save_nhapkho_data(data: dict):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
-
-
-# ── Utility helpers ──────────────────────────────────────────────────
-def has_allowed_role(interaction: discord.Interaction) -> bool:
-    return any(role.id in config.ALLOWED_ROLE_IDS for role in interaction.user.roles)
-
-
-def convert_time(time_str: str) -> int:
-    time_str = time_str.lower().replace(" ", "")
-    total_seconds = 0
-    matches = re.findall(r"(\d+)([dhms])", time_str)
-    if not matches:
-        return -1
-    for val, unit in matches:
-        val = int(val)
-        if unit == "s":
-            total_seconds += val
-        elif unit == "m":
-            total_seconds += val * 60
-        elif unit == "h":
-            total_seconds += val * 3600
-        elif unit == "d":
-            total_seconds += val * 86400
-    return total_seconds if total_seconds > 0 else -1
-
-
-def parse_monkeys(guild: discord.Guild, monkeys: str) -> list[discord.Member]:
-    members = []
-    id_pattern = re.compile(r"<@!?(\d+)>")
-    parts = re.split(r"[,\s]+", monkeys.strip())
-    for part in parts:
-        if not part:
-            continue
-        match = id_pattern.match(part)
-        member_id = (
-            int(match.group(1)) if match else (int(part) if part.isdigit() else None)
-        )
-        if member_id:
-            member = guild.get_member(member_id)
-            if member and member not in members:
-                members.append(member)
-    return members
 
 
 # ── Cog ──────────────────────────────────────────────────────────────
@@ -96,7 +61,12 @@ class NhapKhoCog(commands.Cog):
             save_nhapkho_data(self.nhapkho_data)
 
     # ── Role helpers ─────────────────────────────────────────────────
-    async def restore_roles(self, guild: discord.Guild, member: discord.Member):
+    async def restore_roles(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        roles_to_remove: list[discord.Role] | None = None,
+    ):
         # Ưu tiên temp (in-memory), fallback sang persistent data
         if member.id in self.temp_saved_roles:
             role_ids = self.temp_saved_roles[member.id]
@@ -105,14 +75,16 @@ class NhapKhoCog(commands.Cog):
             info = self.nhapkho_data.get(str(member.id), {})
             role_ids = info.get("saved_roles", [])
 
-        roles_to_add = [
-            guild.get_role(rid) for rid in role_ids if guild.get_role(rid)
-        ]
-        if roles_to_add:
-            try:
-                await member.add_roles(*roles_to_add)
-            except Exception:
-                pass
+        roles_to_add = role_ids_to_roles(guild, role_ids)
+        try:
+            await apply_role_update(
+                member,
+                roles_to_add=roles_to_add,
+                roles_to_remove=roles_to_remove or (),
+                reason="Nhap kho restore roles",
+            )
+        except Exception:
+            pass
 
     # ── Core nhapkho logic ───────────────────────────────────────────
     async def perform_nhapkho(
@@ -130,18 +102,21 @@ class NhapKhoCog(commands.Cog):
             return
 
         # Gỡ các role trong ROLES_TO_REMOVE và lưu lại
-        roles_to_remove = [r for r in member.roles if r.id in config.ROLES_TO_REMOVE]
+        roles_to_remove = [
+            r for r in member.roles if r.id in config.ROLES_TO_REMOVE_ID_SET
+        ]
         saved_role_ids = [r.id for r in roles_to_remove]
         if roles_to_remove:
             self.temp_saved_roles[member.id] = saved_role_ids
-            try:
-                await member.remove_roles(*roles_to_remove, reason="Hôm nay đẹp trời nên thích thì cho mài vô chuồng thôi")
-            except Exception:
-                pass
 
         try:
             # Gán role nhập kho
-            await member.add_roles(role_nhapkho, reason=reason)
+            await apply_role_update(
+                member,
+                roles_to_add=[role_nhapkho],
+                roles_to_remove=roles_to_remove,
+                reason=reason,
+            )
 
             # Kick khỏi voice nếu đang trong voice
             if member.voice and member.voice.channel:
@@ -152,8 +127,6 @@ class NhapKhoCog(commands.Cog):
 
             end_time_timestamp = int(time.time() + seconds)
             discord_timestamp = f"<t:{end_time_timestamp}:R>"
-            full_date_timestamp = f"<t:{end_time_timestamp}:F>"
-
             # Gửi thông báo vào channel log
             log_msg = None
             log_channel = guild.get_channel(config.NHAPKHO_LOG_CHANNEL_ID)
@@ -171,13 +144,14 @@ class NhapKhoCog(commands.Cog):
             await asyncio.sleep(seconds)
 
             # Xuất kho — xóa tin nhắn log, gỡ role, trả role
-            await self._delete_log_message(guild, member.id)
-            member = guild.get_member(member.id)
+            member_id = member.id
+            await self._delete_log_message(guild, member_id)
+            member = guild.get_member(member_id)
             if member:
-                if role_nhapkho in member.roles:
-                    await member.remove_roles(role_nhapkho)
-                await self.restore_roles(guild, member)
-            self.remove_nhapkho_member(member.id)
+                await self.restore_roles(
+                    guild, member, roles_to_remove=[role_nhapkho]
+                )
+            self.remove_nhapkho_member(member_id)
         except Exception as e:
             print(f"[NhapKho] Lỗi quy trình: {e}")
 
@@ -189,7 +163,7 @@ class NhapKhoCog(commands.Cog):
             log_channel = guild.get_channel(config.NHAPKHO_LOG_CHANNEL_ID)
             if log_channel:
                 try:
-                    log_msg = await log_channel.fetch_message(log_msg_id)
+                    log_msg = log_channel.get_partial_message(log_msg_id)
                     await log_msg.delete()
                 except Exception:
                     pass
@@ -202,18 +176,21 @@ class NhapKhoCog(commands.Cog):
         member = guild.get_member(member_id)
         if member:
             role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
-            if role_nhapkho and role_nhapkho in member.roles:
-                await member.remove_roles(role_nhapkho)
             info = self.nhapkho_data.get(str(member_id), {})
             saved = info.get("saved_roles", [])
-            roles_to_add = [
-                guild.get_role(rid) for rid in saved if guild.get_role(rid)
-            ]
-            if roles_to_add:
-                try:
-                    await member.add_roles(*roles_to_add)
-                except Exception:
-                    pass
+            roles_to_add = role_ids_to_roles(guild, saved)
+            roles_to_remove = [
+                role_nhapkho
+            ] if role_nhapkho and role_nhapkho in member.roles else []
+            try:
+                await apply_role_update(
+                    member,
+                    roles_to_add=roles_to_add,
+                    roles_to_remove=roles_to_remove,
+                    reason="Nhap kho expired",
+                )
+            except Exception:
+                pass
         self.remove_nhapkho_member(member_id)
 
     # ── Events (Listeners) ───────────────────────────────────────────
@@ -235,24 +212,34 @@ class NhapKhoCog(commands.Cog):
                 await self._delete_log_message(guild, member_id)
                 if member:
                     role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
-                    if role_nhapkho and role_nhapkho in member.roles:
-                        await member.remove_roles(role_nhapkho)
                     saved = info.get("saved_roles", [])
-                    roles_to_add = [
-                        guild.get_role(rid) for rid in saved if guild.get_role(rid)
-                    ]
-                    if roles_to_add:
-                        try:
-                            await member.add_roles(*roles_to_add)
-                        except Exception:
-                            pass
+                    roles_to_add = role_ids_to_roles(guild, saved)
+                    roles_to_remove = [
+                        role_nhapkho
+                    ] if role_nhapkho and role_nhapkho in member.roles else []
+                    try:
+                        await apply_role_update(
+                            member,
+                            roles_to_add=roles_to_add,
+                            roles_to_remove=roles_to_remove,
+                            reason="Nhap kho expired",
+                        )
+                    except Exception:
+                        pass
                 self.remove_nhapkho_member(member_id)
             else:
                 # Còn hạn — đảm bảo role và resume timer
                 if member:
                     role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
                     if role_nhapkho and role_nhapkho not in member.roles:
-                        await member.add_roles(role_nhapkho)
+                        try:
+                            await apply_role_update(
+                                member,
+                                roles_to_add=[role_nhapkho],
+                                reason="Nhap kho resume",
+                            )
+                        except Exception:
+                            pass
                 asyncio.create_task(
                     self.resume_nhapkho_timer(guild, member_id, remaining)
                 )
@@ -275,16 +262,17 @@ class NhapKhoCog(commands.Cog):
             self.remove_nhapkho_member(member.id)
             return
 
-        if role_nhapkho:
+        roles_to_remove = [
+            r for r in member.roles if r.id in config.ROLES_TO_REMOVE_ID_SET
+        ]
+        if role_nhapkho or roles_to_remove:
             try:
-                await member.add_roles(role_nhapkho, reason="Rejoin - vẫn đang nhập kho")
-            except Exception:
-                pass
-
-        roles_to_remove = [r for r in member.roles if r.id in config.ROLES_TO_REMOVE]
-        if roles_to_remove:
-            try:
-                await member.remove_roles(*roles_to_remove, reason="Rejoin - nhapkho")
+                await apply_role_update(
+                    member,
+                    roles_to_add=[role_nhapkho] if role_nhapkho else [],
+                    roles_to_remove=roles_to_remove,
+                    reason="Rejoin - vẫn đang nhập kho",
+                )
             except Exception:
                 pass
 
@@ -320,7 +308,6 @@ class NhapKhoCog(commands.Cog):
                 "Không tìm thấy người dùng.", ephemeral=True
             )
 
-        await interaction.response.defer()
         msg = []
         for m in targets:
             if m.id == interaction.user.id:
@@ -328,18 +315,11 @@ class NhapKhoCog(commands.Cog):
                     msg.append("Đừng tự bắn vào chân thế chứ bro")
                     continue
             else:
-                effective_target_roles = [
-                    r for r in m.roles if r.id not in config.IGNORED_BANNED_ROLES
-                ]
-                effective_top_role = (
-                    effective_target_roles[-1]
-                    if effective_target_roles
-                    else m.roles[0]
-                )
-                if effective_top_role > interaction.user.top_role:
+                target_top_role = effective_top_role(m)
+                if target_top_role > interaction.user.top_role:
                     msg.append(f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn.")
                     continue
-                if effective_top_role == interaction.user.top_role:
+                if target_top_role == interaction.user.top_role:
                     msg.append(f"Không thể timeout {m.mention} — người này có cùng role với bạn.")
                     continue
             asyncio.create_task(
@@ -349,7 +329,7 @@ class NhapKhoCog(commands.Cog):
                 f"{m.mention} đã bị gửi vào vườn thú trong {period} — lý do: {reason}."
             )
 
-        await interaction.followup.send("\n".join(msg))
+        await interaction.response.send_message("\n".join(msg))
 
     @app_commands.command(
         name="xuatkho", description="Xuất chuồng thôi."
@@ -372,8 +352,7 @@ class NhapKhoCog(commands.Cog):
         msg = []
         for m in targets:
             if role in m.roles:
-                await m.remove_roles(role)
-                await self.restore_roles(interaction.guild, m)
+                await self.restore_roles(interaction.guild, m, roles_to_remove=[role])
                 await self._delete_log_message(interaction.guild, m.id)
                 self.remove_nhapkho_member(m.id)
                 msg.append(f"{m.mention} đã được thả về tự nhiên.")

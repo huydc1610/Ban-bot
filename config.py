@@ -30,6 +30,7 @@ ALLOWED_ROLE_IDS = [
     1397191790381236304,
     1450851766911369337,
 ]
+ALLOWED_ROLE_ID_SET = frozenset(ALLOWED_ROLE_IDS)
 
 # Các role sẽ bị gỡ khi member ra đảo hoặc nhập kho (và trả lại khi về bờ/xuất kho)
 ROLES_TO_REMOVE = [
@@ -44,11 +45,13 @@ ROLES_TO_REMOVE = [
     1462487968705937418,
     1397191419361230970
 ]
+ROLES_TO_REMOVE_ID_SET = frozenset(ROLES_TO_REMOVE)
 
 # Các role bị bỏ qua khi so sánh quyền (không tính vào top role)
 IGNORED_BANNED_ROLES = [
     1487076845123010733,
 ]
+IGNORED_BANNED_ROLE_ID_SET = frozenset(IGNORED_BANNED_ROLES)
 
 # ── Users ────────────────────────────────────────────────────────────
 # User ID được phép tự ban chính mình

@@ -4,10 +4,17 @@ from discord import app_commands
 import asyncio
 import os
 import json
-import re
 import time
 
 import config
+from cogs.common import (
+    apply_role_update,
+    convert_time,
+    effective_top_role,
+    has_allowed_role,
+    parse_monkeys,
+    role_ids_to_roles,
+)
 
 DATA_FILE = os.path.join(config.DATA_DIR, "radao_data.json")
 
@@ -24,48 +31,6 @@ def save_radao_data(data: dict):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
-
-
-# ── Utility helpers ──────────────────────────────────────────────────
-def has_allowed_role(interaction: discord.Interaction) -> bool:
-    return any(role.id in config.ALLOWED_ROLE_IDS for role in interaction.user.roles)
-
-
-def convert_time(time_str: str) -> int:
-    time_str = time_str.lower().replace(" ", "")
-    total_seconds = 0
-    matches = re.findall(r"(\d+)([dhms])", time_str)
-    if not matches:
-        return -1
-    for val, unit in matches:
-        val = int(val)
-        if unit == "s":
-            total_seconds += val
-        elif unit == "m":
-            total_seconds += val * 60
-        elif unit == "h":
-            total_seconds += val * 3600
-        elif unit == "d":
-            total_seconds += val * 86400
-    return total_seconds if total_seconds > 0 else -1
-
-
-def parse_monkeys(guild: discord.Guild, monkeys: str) -> list[discord.Member]:
-    members = []
-    id_pattern = re.compile(r"<@!?(\d+)>")
-    parts = re.split(r"[,\s]+", monkeys.strip())
-    for part in parts:
-        if not part:
-            continue
-        match = id_pattern.match(part)
-        member_id = (
-            int(match.group(1)) if match else (int(part) if part.isdigit() else None)
-        )
-        if member_id:
-            member = guild.get_member(member_id)
-            if member and member not in members:
-                members.append(member)
-    return members
 
 
 # ── Cog ──────────────────────────────────────────────────────────────
@@ -94,18 +59,29 @@ class RadaoCog(commands.Cog):
             save_radao_data(self.radao_data)
 
     # ── Role helpers ─────────────────────────────────────────────────
-    async def restore_roles(self, guild: discord.Guild, member: discord.Member):
+    async def restore_roles(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        roles_to_remove: list[discord.Role] | None = None,
+    ):
         if member.id in self.temp_saved_roles:
             role_ids = self.temp_saved_roles[member.id]
-            roles_to_add = [
-                guild.get_role(rid) for rid in role_ids if guild.get_role(rid)
-            ]
-            if roles_to_add:
-                try:
-                    await member.add_roles(*roles_to_add)
-                except Exception:
-                    pass
             del self.temp_saved_roles[member.id]
+        else:
+            info = self.radao_data.get(str(member.id), {})
+            role_ids = info.get("saved_roles", [])
+
+        roles_to_add = role_ids_to_roles(guild, role_ids)
+        try:
+            await apply_role_update(
+                member,
+                roles_to_add=roles_to_add,
+                roles_to_remove=roles_to_remove or (),
+                reason="Radao restore roles",
+            )
+        except Exception:
+            pass
 
     # ── Core radao logic ─────────────────────────────────────────────
     async def perform_radao(
@@ -123,17 +99,20 @@ class RadaoCog(commands.Cog):
         if not role_radao or not category:
             return
 
-        roles_to_remove = [r for r in member.roles if r.id in config.ROLES_TO_REMOVE]
+        roles_to_remove = [
+            r for r in member.roles if r.id in config.ROLES_TO_REMOVE_ID_SET
+        ]
         saved_role_ids = [r.id for r in roles_to_remove]
         if roles_to_remove:
             self.temp_saved_roles[member.id] = saved_role_ids
-            try:
-                await member.remove_roles(*roles_to_remove, reason="Radao")
-            except Exception:
-                pass
 
         try:
-            await member.add_roles(role_radao, reason=reason)
+            await apply_role_update(
+                member,
+                roles_to_add=[role_radao],
+                roles_to_remove=roles_to_remove,
+                reason=reason,
+            )
             if member.voice and member.voice.channel:
                 try:
                     await member.move_to(None, reason=f"Ra đảo: {reason}")
@@ -146,40 +125,45 @@ class RadaoCog(commands.Cog):
 
             self.add_radao_member(member.id, reason, end_time_timestamp, saved_role_ids)
 
+            overwrites = dict(category.overwrites)
+            overwrites[member] = discord.PermissionOverwrite(
+                read_messages=True,
+                send_messages=True,
+            )
+            role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
+            if role_nhapkho:
+                overwrites[role_nhapkho] = discord.PermissionOverwrite(
+                    read_messages=False,
+                )
+
             channel = await guild.create_text_channel(
                 name=f"dao-khi-{member.display_name}",
                 category=category,
                 topic=f"ID: {member.id} | Ra đảo vì: {reason}",
+                overwrites=overwrites,
             )
 
-            await channel.set_permissions(
-                member, read_messages=True, send_messages=True
-            )
-            # Ẩn channel đảo với người có role nhập kho
-            role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
-            if role_nhapkho:
-                await channel.set_permissions(
-                    role_nhapkho, read_messages=False
-                )
-            await channel.send(
-                f"Chào mừng {member.mention} đến với đảo! Về bờ sau {discord_timestamp} ({full_date_timestamp})."
-            )
             try:
-                await channel.send(f"Lý do ra đảo: **{reason}**")
-                await channel.send("Ngồi đây bị Rick Lăn nhé :Đ!")
                 await channel.send(
-                    "https://tenor.com/view/rickroll-roll-rick-never-gonna-give-you-up-never-gonna-gif-22954713"
+                    "\n".join(
+                        [
+                            f"Chào mừng {member.mention} đến với đảo! Về bờ sau {discord_timestamp} ({full_date_timestamp}).",
+                            f"Lý do ra đảo: **{reason}**",
+                            "Ngồi đây bị Rick Lăn nhé :Đ!",
+                            "https://tenor.com/view/rickroll-roll-rick-never-gonna-give-you-up-never-gonna-gif-22954713",
+                        ]
+                    )
                 )
             except Exception:
                 await channel.send("Lần này méo có rick roll may đấy")
 
             await asyncio.sleep(seconds)
 
-            member = guild.get_member(member.id)
+            member_id = member.id
+            member = guild.get_member(member_id)
             if member and role_radao in member.roles:
-                await member.remove_roles(role_radao)
-                await self.restore_roles(guild, member)
-            self.remove_radao_member(member.id)
+                await self.restore_roles(guild, member, roles_to_remove=[role_radao])
+            self.remove_radao_member(member_id)
             if channel:
                 await channel.delete()
         except Exception as e:
@@ -192,18 +176,19 @@ class RadaoCog(commands.Cog):
         member = guild.get_member(member_id)
         if member:
             role_radao = guild.get_role(config.TARGET_ROLE_ID)
-            if role_radao and role_radao in member.roles:
-                await member.remove_roles(role_radao)
             info = self.radao_data.get(str(member_id), {})
             saved = info.get("saved_roles", [])
-            roles_to_add = [
-                guild.get_role(rid) for rid in saved if guild.get_role(rid)
-            ]
-            if roles_to_add:
-                try:
-                    await member.add_roles(*roles_to_add)
-                except Exception:
-                    pass
+            roles_to_add = role_ids_to_roles(guild, saved)
+            roles_to_remove = [role_radao] if role_radao and role_radao in member.roles else []
+            try:
+                await apply_role_update(
+                    member,
+                    roles_to_add=roles_to_add,
+                    roles_to_remove=roles_to_remove,
+                    reason="Radao expired",
+                )
+            except Exception:
+                pass
             cat = guild.get_channel(config.TARGET_CATEGORY_ID)
             if cat:
                 for c in cat.text_channels:
@@ -229,17 +214,20 @@ class RadaoCog(commands.Cog):
                 # Hết hạn — gỡ role & xóa channel
                 if member:
                     role_radao = guild.get_role(config.TARGET_ROLE_ID)
-                    if role_radao and role_radao in member.roles:
-                        await member.remove_roles(role_radao)
                     saved = info.get("saved_roles", [])
-                    roles_to_add = [
-                        guild.get_role(rid) for rid in saved if guild.get_role(rid)
-                    ]
-                    if roles_to_add:
-                        try:
-                            await member.add_roles(*roles_to_add)
-                        except Exception:
-                            pass
+                    roles_to_add = role_ids_to_roles(guild, saved)
+                    roles_to_remove = [
+                        role_radao
+                    ] if role_radao and role_radao in member.roles else []
+                    try:
+                        await apply_role_update(
+                            member,
+                            roles_to_add=roles_to_add,
+                            roles_to_remove=roles_to_remove,
+                            reason="Radao expired",
+                        )
+                    except Exception:
+                        pass
                     cat = guild.get_channel(config.TARGET_CATEGORY_ID)
                     if cat:
                         for c in cat.text_channels:
@@ -254,7 +242,14 @@ class RadaoCog(commands.Cog):
                 if member:
                     role_radao = guild.get_role(config.TARGET_ROLE_ID)
                     if role_radao and role_radao not in member.roles:
-                        await member.add_roles(role_radao)
+                        try:
+                            await apply_role_update(
+                                member,
+                                roles_to_add=[role_radao],
+                                reason="Radao resume",
+                            )
+                        except Exception:
+                            pass
                 asyncio.create_task(
                     self.resume_radao_timer(guild, member_id, remaining)
                 )
@@ -277,16 +272,17 @@ class RadaoCog(commands.Cog):
             self.remove_radao_member(member.id)
             return
 
-        if role_radao:
+        roles_to_remove = [
+            r for r in member.roles if r.id in config.ROLES_TO_REMOVE_ID_SET
+        ]
+        if role_radao or roles_to_remove:
             try:
-                await member.add_roles(role_radao, reason="Rejoin - vẫn đang ra đảo")
-            except Exception:
-                pass
-
-        roles_to_remove = [r for r in member.roles if r.id in config.ROLES_TO_REMOVE]
-        if roles_to_remove:
-            try:
-                await member.remove_roles(*roles_to_remove, reason="Rejoin - radao")
+                await apply_role_update(
+                    member,
+                    roles_to_add=[role_radao] if role_radao else [],
+                    roles_to_remove=roles_to_remove,
+                    reason="Rejoin - vẫn đang ra đảo",
+                )
             except Exception:
                 pass
 
@@ -322,7 +318,6 @@ class RadaoCog(commands.Cog):
                 "Không tìm thấy người dùng.", ephemeral=True
             )
 
-        await interaction.response.defer()
         msg = []
         for m in targets:
             if m.id == interaction.user.id:
@@ -330,18 +325,11 @@ class RadaoCog(commands.Cog):
                     msg.append("Đừng tự bắn vào chân thế chứ bro")
                     continue
             else:
-                effective_target_roles = [
-                    r for r in m.roles if r.id not in config.IGNORED_BANNED_ROLES
-                ]
-                effective_top_role = (
-                    effective_target_roles[-1]
-                    if effective_target_roles
-                    else m.roles[0]
-                )
-                if effective_top_role > interaction.user.top_role:
+                target_top_role = effective_top_role(m)
+                if target_top_role > interaction.user.top_role:
                     msg.append(f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn.")
                     continue
-                if effective_top_role == interaction.user.top_role:
+                if target_top_role == interaction.user.top_role:
                     msg.append(f"Không thể timeout {m.mention} — người này có cùng role với bạn.")
                     continue
             asyncio.create_task(
@@ -351,7 +339,7 @@ class RadaoCog(commands.Cog):
                 f"Bonk🔨 bà zà mài {m.mention} ra đảo trong {period} lý do: {reason}."
             )
 
-        await interaction.followup.send("\n".join(msg))
+        await interaction.response.send_message("\n".join(msg))
 
     @app_commands.command(
         name="vebo", description="Đưa khỉ về bờ."
@@ -374,8 +362,7 @@ class RadaoCog(commands.Cog):
         msg = []
         for m in targets:
             if role in m.roles:
-                await m.remove_roles(role)
-                await self.restore_roles(interaction.guild, m)
+                await self.restore_roles(interaction.guild, m, roles_to_remove=[role])
                 self.remove_radao_member(m.id)
                 msg.append(f"Đã về bờ: {m.mention}")
                 cat = interaction.guild.get_channel(config.TARGET_CATEGORY_ID)
