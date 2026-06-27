@@ -3,7 +3,6 @@ from discord.ext import commands
 from discord import app_commands
 import asyncio
 import os
-import json
 import time
 
 import config
@@ -12,8 +11,11 @@ from cogs.common import (
     convert_time,
     effective_top_role,
     has_allowed_role,
+    load_json_dict,
     parse_monkeys,
     role_ids_to_roles,
+    roles_to_remove_ids,
+    save_json_dict,
 )
 
 DATA_FILE = os.path.join(config.DATA_DIR, "nhapkho_data.json")
@@ -21,21 +23,16 @@ DATA_FILE = os.path.join(config.DATA_DIR, "nhapkho_data.json")
 
 # ── Data helpers ─────────────────────────────────────────────────────
 def load_nhapkho_data() -> dict:
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {}
+    return load_json_dict(DATA_FILE)
 
 
 def save_nhapkho_data(data: dict):
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
+    save_json_dict(DATA_FILE, data)
 
 
 # ── Cog ──────────────────────────────────────────────────────────────
 class NhapKhoCog(commands.Cog):
-    """Cog quản lý lệnh /nhapkho và /xuatkho — gỡ role và gán role kho."""
+    """Cog quản lý lệnh /nhapkho — gỡ role và gán role kho."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -86,6 +83,16 @@ class NhapKhoCog(commands.Cog):
         except Exception:
             pass
 
+    async def release_member(self, guild: discord.Guild, member: discord.Member) -> bool:
+        role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
+        if not role_nhapkho or role_nhapkho not in member.roles:
+            return False
+
+        await self.restore_roles(guild, member, roles_to_remove=[role_nhapkho])
+        await self._delete_log_message(guild, member.id)
+        self.remove_nhapkho_member(member.id)
+        return True
+
     # ── Core nhapkho logic ───────────────────────────────────────────
     async def perform_nhapkho(
         self,
@@ -102,9 +109,8 @@ class NhapKhoCog(commands.Cog):
             return
 
         # Gỡ các role trong ROLES_TO_REMOVE và lưu lại
-        roles_to_remove = [
-            r for r in member.roles if r.id in config.ROLES_TO_REMOVE_ID_SET
-        ]
+        removable_role_ids = roles_to_remove_ids()
+        roles_to_remove = [r for r in member.roles if r.id in removable_role_ids]
         saved_role_ids = [r.id for r in roles_to_remove]
         if roles_to_remove:
             self.temp_saved_roles[member.id] = saved_role_ids
@@ -262,9 +268,8 @@ class NhapKhoCog(commands.Cog):
             self.remove_nhapkho_member(member.id)
             return
 
-        roles_to_remove = [
-            r for r in member.roles if r.id in config.ROLES_TO_REMOVE_ID_SET
-        ]
+        removable_role_ids = roles_to_remove_ids()
+        roles_to_remove = [r for r in member.roles if r.id in removable_role_ids]
         if role_nhapkho or roles_to_remove:
             try:
                 await apply_role_update(
@@ -308,6 +313,7 @@ class NhapKhoCog(commands.Cog):
                 "Không tìm thấy người dùng.", ephemeral=True
             )
 
+        await interaction.response.defer()
         msg = []
         for m in targets:
             if m.id == interaction.user.id:
@@ -329,37 +335,7 @@ class NhapKhoCog(commands.Cog):
                 f"{m.mention} đã bị gửi vào vườn thú trong {period} — lý do: {reason}."
             )
 
-        await interaction.response.send_message("\n".join(msg))
-
-    @app_commands.command(
-        name="xuatkho", description="Xuất chuồng thôi."
-    )
-    @app_commands.guilds(config.MAIN_GUILD_ID)
-    async def xuatkho(self, interaction: discord.Interaction, monkeys: str):
-        if not has_allowed_role(interaction):
-            return await interaction.response.send_message(
-                "Bạn không có quyền dùng lệnh này.", ephemeral=True
-            )
-
-        targets = parse_monkeys(interaction.guild, monkeys)
-        if not targets:
-            return await interaction.response.send_message(
-                "Không tìm thấy ai.", ephemeral=True
-            )
-
-        await interaction.response.defer()
-        role = interaction.guild.get_role(config.NHAPKHO_ROLE_ID)
-        msg = []
-        for m in targets:
-            if role in m.roles:
-                await self.restore_roles(interaction.guild, m, roles_to_remove=[role])
-                await self._delete_log_message(interaction.guild, m.id)
-                self.remove_nhapkho_member(m.id)
-                msg.append(f"{m.mention} đã được thả về tự nhiên.")
-            else:
-                msg.append(f"{m.mention} không ở trong vườn thú.")
         await interaction.followup.send("\n".join(msg))
-
 
 # ── Setup function (required for cog loading) ───────────────────────
 async def setup(bot: commands.Bot):

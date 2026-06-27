@@ -1,3 +1,6 @@
 __pycache__
 .env
+.git
+data
+tests
 venv

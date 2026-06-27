@@ -1,3 +1,5 @@
+import json
+import os
 import re
 from collections.abc import Iterable
 
@@ -10,8 +12,77 @@ MENTION_RE = re.compile(r"<@!?(\d+)>")
 MONKEY_SPLIT_RE = re.compile(r"[,\s]+")
 
 
+def config_id_set(
+    set_name: str,
+    list_name: str,
+    default: Iterable[int] = (),
+) -> frozenset[int]:
+    values = getattr(config, set_name, None)
+    if values is None:
+        values = getattr(config, list_name, default)
+    return frozenset(int(value) for value in values)
+
+
+def allowed_role_ids() -> frozenset[int]:
+    return config_id_set("ALLOWED_ROLE_ID_SET", "ALLOWED_ROLE_IDS")
+
+
+def allowed_user_ids() -> frozenset[int]:
+    return config_id_set("ALLOWED_USER_ID_SET", "ALLOWED_USER_IDS")
+
+
+def command_blocked_role_ids() -> frozenset[int]:
+    default = (
+        getattr(config, "TARGET_ROLE_ID", 0),
+        getattr(config, "NHAPKHO_ROLE_ID", 0),
+    )
+    return config_id_set(
+        "COMMAND_BLOCKED_ROLE_ID_SET",
+        "COMMAND_BLOCKED_ROLE_IDS",
+        default,
+    )
+
+
+def roles_to_remove_ids() -> frozenset[int]:
+    return config_id_set("ROLES_TO_REMOVE_ID_SET", "ROLES_TO_REMOVE")
+
+
+def ignored_banned_role_ids() -> frozenset[int]:
+    return config_id_set("IGNORED_BANNED_ROLE_ID_SET", "IGNORED_BANNED_ROLES")
+
+
+def autoban_ignored_role_ids() -> frozenset[int]:
+    return config_id_set("AUTOBAN_IGNORED_ROLE_ID_SET", "AUTOBAN_IGNORED_ROLE_IDS")
+
+
+def load_json_dict(path: str | os.PathLike) -> dict:
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_json_dict(path: str | os.PathLike, data: dict):
+    os.makedirs(os.path.dirname(os.fspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
 def has_allowed_role(interaction: discord.Interaction) -> bool:
-    return any(role.id in config.ALLOWED_ROLE_ID_SET for role in interaction.user.roles)
+    roles = getattr(interaction.user, "roles", ())
+    blocked_role_ids = command_blocked_role_ids()
+    if any(role.id in blocked_role_ids for role in roles):
+        return False
+
+    user_id = getattr(interaction.user, "id", None)
+    if user_id in allowed_user_ids():
+        return True
+
+    return any(role.id in allowed_role_ids() for role in roles)
 
 
 def convert_time(time_str: str) -> int:
@@ -65,8 +136,9 @@ def role_ids_to_roles(
 
 
 def effective_top_role(member: discord.Member) -> discord.Role:
+    ignored_role_ids = ignored_banned_role_ids()
     for role in reversed(member.roles):
-        if role.id not in config.IGNORED_BANNED_ROLE_ID_SET:
+        if role.id not in ignored_role_ids:
             return role
     return member.roles[0]
 

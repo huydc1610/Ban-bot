@@ -1,12 +1,19 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 import os
+import sys
 import time
+import traceback
 from dotenv import load_dotenv
 
 import importlib
 import config
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 load_dotenv()
 
@@ -22,7 +29,6 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-@bot.tree.interaction_check
 async def auto_reload_config(interaction: discord.Interaction):
     global last_mtime, last_config_check
     now = time.monotonic()
@@ -41,10 +47,30 @@ async def auto_reload_config(interaction: discord.Interaction):
         print(f"Lỗi khi auto-reload config.py: {e}")
     return True
 
+
+bot.tree.interaction_check = auto_reload_config
+
+
+@bot.tree.error
+async def on_app_command_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    print("Unhandled app command error:")
+    traceback.print_exception(type(error), error, error.__traceback__)
+    message = "Lệnh bị lỗi khi xử lý. Kiểm tra log bot để xem chi tiết."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except Exception:
+        traceback.print_exc()
+
 # ── Cogs to load ─────────────────────────────────────────────────────
 INITIAL_COGS = [
     "cogs.radao",
     "cogs.nhapkho",
+    "cogs.autoban",
 ]
 
 
@@ -52,9 +78,9 @@ async def load_cogs():
     for cog in INITIAL_COGS:
         try:
             await bot.load_extension(cog)
-            print(f"  ✓ Loaded: {cog}")
+            print(f"  OK Loaded: {cog}")
         except Exception as e:
-            print(f"  ✗ Failed to load {cog}: {e}")
+            print(f"  ERR Failed to load {cog}: {e}")
 
 
 # ── Events ───────────────────────────────────────────────────────────
@@ -69,7 +95,7 @@ async def on_ready():
 
     print("------ BẮT ĐẦU ĐỒNG BỘ LỆNH ------")
 
-    if os.getenv("CLEAR_GLOBAL_COMMANDS_ON_STARTUP") == "1":
+    if os.getenv("CLEAR_GLOBAL_COMMANDS_ON_STARTUP", "1") == "1":
         bot.tree.clear_commands(guild=None)
         await bot.tree.sync(guild=None)
         print(">> Đã xóa sạch lệnh Global cũ.")

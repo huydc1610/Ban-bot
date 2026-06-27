@@ -1,8 +1,6 @@
-fly.toml
-.env
 data/
-__pycache__/
-*.pyc
-tests/
+tests
 docker-compose.yml
 dockerfile
+.*
+__*
