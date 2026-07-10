@@ -51,6 +51,10 @@ def ignored_banned_role_ids() -> frozenset[int]:
     return config_id_set("IGNORED_BANNED_ROLE_ID_SET", "IGNORED_BANNED_ROLES")
 
 
+def ignored_banned_user_ids() -> frozenset[int]:
+    return config_id_set("IGNORED_BANNED_USER_ID_SET", "IGNORED_BANNED_USERS")
+
+
 def autoban_ignored_role_ids() -> frozenset[int]:
     return config_id_set("AUTOBAN_IGNORED_ROLE_ID_SET", "AUTOBAN_IGNORED_ROLE_IDS")
 
@@ -136,6 +140,8 @@ def role_ids_to_roles(
 
 
 def effective_top_role(member: discord.Member) -> discord.Role:
+    if getattr(member, "id", None) in ignored_banned_user_ids():
+        return member.roles[0]
     ignored_role_ids = ignored_banned_role_ids()
     for role in reversed(member.roles):
         if role.id not in ignored_role_ids:

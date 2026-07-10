@@ -76,6 +76,10 @@ IGNORED_BANNED_ROLES = [
 ]
 IGNORED_BANNED_ROLE_ID_SET = frozenset(IGNORED_BANNED_ROLES)
 
+# Các user bị bỏ qua khi so sánh quyền, hoạt động giống IGNORED_BANNED_ROLES.
+IGNORED_BANNED_USERS = []
+IGNORED_BANNED_USER_ID_SET = frozenset(IGNORED_BANNED_USERS)
+
 # ── Autoban / Honeypot ───────────────────────────────────────────────
 # Channel bẫy: ai nhắn vào đây sẽ bị ra đảo vĩnh viễn, trừ role bỏ qua.
 # Có thể override bằng env var AUTOBAN_CHANNEL_ID.
