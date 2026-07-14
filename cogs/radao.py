@@ -392,6 +392,18 @@ class RadaoCog(commands.Cog):
             except Exception:
                 pass
 
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild: discord.Guild, user: discord.User):
+        channel = self.find_radao_channel(guild, user.id)
+        if channel:
+            try:
+                await channel.delete()
+            except Exception:
+                pass
+
+        self.temp_saved_roles.pop(user.id, None)
+        self.remove_radao_member(user.id)
+
     # ── Slash Commands ───────────────────────────────────────────────
     @app_commands.command(
         name="radao", description="Cho khỉ ra đảo."
@@ -447,6 +459,17 @@ class RadaoCog(commands.Cog):
             )
 
         await interaction.followup.send("\n".join(msg))
+
+    @app_commands.command(
+        name="ban", description="Ban khỉ khỏi server."
+    )
+    @app_commands.guilds(config.MAIN_GUILD_ID)
+    @app_commands.describe(user="Member cần ban")
+    async def ban(self, interaction: discord.Interaction, user: discord.Member):
+        if not has_allowed_role(interaction):
+            return await interaction.response.send_message(
+                "Bạn không có quyền dùng lệnh này.", ephemeral=True
+            )
 
     @app_commands.command(
         name="giaicuu", description="Giải cứu khỉ khỏi đảo hoặc vườn thú."

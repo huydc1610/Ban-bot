@@ -33,16 +33,14 @@ NHAPKHO_LOG_CHANNEL_ID = 1504949644709335240
 
 # Các role được phép sử dụng lệnh /radao, /giaicuu và /nhapkho
 ALLOWED_ROLE_IDS = [
-    1489982960404009051,
     1397185946541359214,
+    1489982960404009051,
     1397191790381236304,
     1450851766911369337,
 ]
 ALLOWED_ROLE_ID_SET = frozenset(ALLOWED_ROLE_IDS)
 
 # User ID được phép sử dụng lệnh ban bot dù không có role ở trên.
-# Thêm ID Discord vào danh sách này, ví dụ:
-# ALLOWED_USER_IDS = [123456789012345678, 987654321098765432]
 ALLOWED_USER_IDS = [
     1093175386310971484,
 ]
