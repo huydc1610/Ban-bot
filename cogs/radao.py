@@ -471,6 +471,10 @@ class RadaoCog(commands.Cog):
                 "Bạn không có quyền dùng lệnh này.", ephemeral=True
             )
 
+        await interaction.response.defer()
+        await interaction.guild.ban(user, reason=f"Slash /ban bởi {interaction.user}")
+        await interaction.followup.send(f"{user.mention} đã pay màu khỏi server.")
+
     @app_commands.command(
         name="giaicuu", description="Giải cứu khỉ khỏi đảo hoặc vườn thú."
     )
