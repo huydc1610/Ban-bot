@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from collections.abc import Iterable
 
 import discord
@@ -10,6 +11,43 @@ import config
 TIME_RE = re.compile(r"(\d+)([dhms])")
 MENTION_RE = re.compile(r"<@!?(\d+)>")
 MONKEY_SPLIT_RE = re.compile(r"[,\s]+")
+MAX_DISCORD_UNIX_TIMESTAMP = 253402300799
+INFINITE_TIME_TEXT = "infinity"
+
+
+def duration_exceeds_discord_timestamp(
+    seconds: int | None,
+    *,
+    now: int | None = None,
+) -> bool:
+    if seconds is None:
+        return True
+    if now is None:
+        now = int(time.time())
+    return now + seconds > MAX_DISCORD_UNIX_TIMESTAMP
+
+
+def format_duration_display(
+    seconds: int | None,
+    period: str | None,
+    *,
+    now: int | None = None,
+) -> str:
+    if duration_exceeds_discord_timestamp(seconds, now=now):
+        return INFINITE_TIME_TEXT
+    return period or INFINITE_TIME_TEXT
+
+
+def format_discord_end_time(
+    end_timestamp: int | None,
+    *,
+    include_full: bool = False,
+) -> str:
+    if end_timestamp is None or end_timestamp > MAX_DISCORD_UNIX_TIMESTAMP:
+        return INFINITE_TIME_TEXT
+    if include_full:
+        return f"<t:{end_timestamp}:R> (<t:{end_timestamp}:F>)"
+    return f"<t:{end_timestamp}:R>"
 
 
 def config_id_set(

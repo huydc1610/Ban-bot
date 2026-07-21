@@ -9,7 +9,10 @@ import config
 from cogs.common import (
     apply_role_update,
     convert_time,
+    duration_exceeds_discord_timestamp,
     effective_top_role,
+    format_discord_end_time,
+    format_duration_display,
     has_allowed_role,
     load_json_dict,
     parse_monkeys,
@@ -19,6 +22,67 @@ from cogs.common import (
 )
 
 DATA_FILE = os.path.join(config.DATA_DIR, "nhapkho_data.json")
+
+
+class NhapKhoNoticeView(discord.ui.LayoutView):
+    PANEL_TITLE = "## THÔNG BÁO NHẬP KHO\n"
+
+    def __init__(
+        self,
+        member: discord.Member,
+        reason: str,
+        *,
+        duration_text: str,
+        end_time_text: str,
+    ):
+        super().__init__(timeout=None)
+
+        panel_text = (
+            "### 👤 ĐỐI TƯỢNG\n"
+            f"> {member.mention}\n"
+            "### ⏳ HÃY CÙNG ĐẾM NGƯỢC\n"
+            f"> **{duration_text}**\n"
+            "### 📝 LÝ DO\n"
+            f"> **{reason}**\n"
+        )
+
+        items = [
+            discord.ui.TextDisplay(self.PANEL_TITLE),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(panel_text),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(f"-# Update <t:{int(time.time())}:f>"),
+        ]
+
+        container = discord.ui.Container(*items)
+        self.add_item(container)
+
+
+class NhapKhoCommandResultView(discord.ui.LayoutView):
+    PANEL_TITLE = "## TIẾN HÀNH NHẬP KHO\n"
+
+    def __init__(self, result_lines: list[str], *, duration_text: str, reason: str):
+        super().__init__(timeout=None)
+
+        result_text = "\n".join(f"> {line}" for line in result_lines)
+        panel_text = (
+            "### 👤 ĐỐI TƯỢNG\n"
+            f"{result_text}\n"
+            "### ⏳ THỜI GIAN\n"
+            f"> **{duration_text}**\n"
+            "### 📝 LÝ DO\n"
+            f"> **{reason}**\n"
+        )
+        items = [
+            discord.ui.TextDisplay(self.PANEL_TITLE),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(panel_text),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(f"-# Update <t:{int(time.time())}:f>"),
+        ]
+
+        container = discord.ui.Container(*items)
+        self.add_item(container)
 
 
 # ── Data helpers ─────────────────────────────────────────────────────
@@ -41,7 +105,7 @@ class NhapKhoCog(commands.Cog):
 
     # ── Data management ──────────────────────────────────────────────
     def add_nhapkho_member(
-        self, member_id: int, reason: str, end_timestamp: int, saved_roles: list[int],
+        self, member_id: int, reason: str, end_timestamp: int | None, saved_roles: list[int],
         log_message_id: int = None,
     ):
         self.nhapkho_data[str(member_id)] = {
@@ -131,20 +195,36 @@ class NhapKhoCog(commands.Cog):
                 except Exception:
                     pass
 
-            end_time_timestamp = int(time.time() + seconds)
-            discord_timestamp = f"<t:{end_time_timestamp}:R>"
+            now = int(time.time())
+            permanent = duration_exceeds_discord_timestamp(seconds, now=now)
+            end_time_timestamp = None if permanent else now + seconds
+            discord_timestamp = format_discord_end_time(end_time_timestamp)
+            duration_text = format_duration_display(seconds, period, now=now)
             # Gửi thông báo vào channel log
             log_msg = None
             log_channel = guild.get_channel(config.NHAPKHO_LOG_CHANNEL_ID)
             if log_channel:
-                log_msg = await log_channel.send(
-                    f"{member.mention} vào chuồng trong {period} (ra chuồng sau {discord_timestamp}) - lý do: {reason}"
-                )
+                try:
+                    log_msg = await log_channel.send(
+                        view=NhapKhoNoticeView(
+                            member,
+                            reason,
+                            duration_text=duration_text,
+                            end_time_text=discord_timestamp,
+                        )
+                    )
+                except Exception:
+                    log_msg = await log_channel.send(
+                        f"{member.mention} vào chuồng trong {duration_text} (ra chuồng sau {discord_timestamp}) - lý do: {reason}"
+                    )
 
             self.add_nhapkho_member(
                 member.id, reason, end_time_timestamp, saved_role_ids,
                 log_message_id=log_msg.id if log_msg else None,
             )
+
+            if permanent:
+                return
 
             # Chờ hết thời gian
             await asyncio.sleep(seconds)
@@ -210,8 +290,23 @@ class NhapKhoCog(commands.Cog):
         now = int(time.time())
         for member_id_str, info in list(self.nhapkho_data.items()):
             member_id = int(member_id_str)
-            remaining = info["end_timestamp"] - now
+            end_timestamp = info.get("end_timestamp")
+            remaining = None if end_timestamp is None else end_timestamp - now
             member = guild.get_member(member_id)
+
+            if end_timestamp is None:
+                if member:
+                    role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
+                    if role_nhapkho and role_nhapkho not in member.roles:
+                        try:
+                            await apply_role_update(
+                                member,
+                                roles_to_add=[role_nhapkho],
+                                reason="Nhap kho permanent resume",
+                            )
+                        except Exception:
+                            pass
+                continue
 
             if remaining <= 0:
                 # Hết hạn — xóa log, gỡ role nhập kho & trả role
@@ -262,9 +357,10 @@ class NhapKhoCog(commands.Cog):
         guild = member.guild
         role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
         now = int(time.time())
-        remaining = info["end_timestamp"] - now
+        end_timestamp = info.get("end_timestamp")
+        remaining = None if end_timestamp is None else end_timestamp - now
 
-        if remaining <= 0:
+        if end_timestamp is not None and remaining <= 0:
             self.remove_nhapkho_member(member.id)
             return
 
@@ -315,6 +411,7 @@ class NhapKhoCog(commands.Cog):
 
         await interaction.response.defer()
         msg = []
+        duration_text = format_duration_display(seconds, period)
         for m in targets:
             if m.id == interaction.user.id:
                 if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
@@ -332,10 +429,16 @@ class NhapKhoCog(commands.Cog):
                 self.perform_nhapkho(interaction, m, seconds, period, reason)
             )
             msg.append(
-                f"{m.mention} đã bị gửi vào vườn thú trong {period} — lý do: {reason}."
+                f"{m.mention} đã bị gửi vào vườn thú."
             )
 
-        await interaction.followup.send("\n".join(msg))
+        await interaction.followup.send(
+            view=NhapKhoCommandResultView(
+                msg,
+                duration_text=duration_text,
+                reason=reason,
+            )
+        )
 
 # ── Setup function (required for cog loading) ───────────────────────
 async def setup(bot: commands.Bot):

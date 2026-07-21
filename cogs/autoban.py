@@ -5,6 +5,7 @@ import config
 from cogs.common import autoban_ignored_role_ids
 
 AUTOBAN_REASON = "Thí sinh Mr Beast tiềm năng"
+AUTOBAN_NOTICE_REASON = "Do quảng cáo lừa đảo bạn sẽ nằm ở đây cho đến khi nào mod thả bạn."
 
 
 def watch_channel_id() -> int:
@@ -117,7 +118,12 @@ class AutobanCog(commands.Cog):
         info = getattr(radao_cog, "radao_data", {}).get(str(member.id), {})
         if info.get("end_timestamp") is None and info.get("permanent"):
             return radao_cog.find_radao_channel(guild, member.id)
-        return await radao_cog.perform_permanent_radao(guild, member, AUTOBAN_REASON)
+        return await radao_cog.perform_permanent_radao(
+            guild,
+            member,
+            AUTOBAN_REASON,
+            notice_reason=AUTOBAN_NOTICE_REASON,
+        )
 
     async def delete_member_messages_elsewhere(
         self,

@@ -9,7 +9,10 @@ import config
 from cogs.common import (
     apply_role_update,
     convert_time,
+    duration_exceeds_discord_timestamp,
     effective_top_role,
+    format_discord_end_time,
+    format_duration_display,
     has_allowed_role,
     load_json_dict,
     parse_monkeys,
@@ -19,6 +22,117 @@ from cogs.common import (
 )
 
 DATA_FILE = os.path.join(config.DATA_DIR, "radao_data.json")
+
+
+class RadaoNoticeView(discord.ui.LayoutView):
+    PANEL_TITLE = "# ĐẢO KHỈ | MONKEY ISLAND\n"
+
+    def __init__(
+        self,
+        member: discord.Member,
+        reason: str,
+        *,
+        end_timestamp: int | None = None,
+        notice_reason: str | None = None,
+    ):
+        super().__init__(timeout=None)
+
+        permanent = end_timestamp is None
+        if permanent:
+            time_text = format_discord_end_time(end_timestamp, include_full=True)
+        else:
+            end_time_text = format_discord_end_time(end_timestamp, include_full=True)
+            time_text = (
+                end_time_text
+                if end_time_text == "infinity"
+                else f"Về bờ sau {end_time_text}."
+            )
+        display_reason = notice_reason or reason
+
+        panel_text = (
+            "### 👤 ĐỐI TƯỢNG\n"
+            f"> {member.mention}\n"
+            "### ⏳ ĐẾM NGƯỢC\n"
+            f"> **{time_text}**\n"
+            "### 📝 LÝ DO\n"
+            f"> **{display_reason}**\n"
+        )
+
+        items = [
+            discord.ui.TextDisplay(self.PANEL_TITLE),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(panel_text),
+        ]
+
+        items.extend([
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(f"-# Update <t:{int(time.time())}:f>"),
+        ])
+
+        container = discord.ui.Container(*items)
+        self.add_item(container)
+
+
+class RadaoCommandResultView(discord.ui.LayoutView):
+    def __init__(self, result_lines: list[str], *, duration_text: str, reason: str):
+        super().__init__(timeout=None)
+
+        result_text = "\n".join(f"> {line}" for line in result_lines)
+        panel_text = (
+            "### 👤 ĐỐI TƯỢNG\n"
+            f"{result_text}\n"
+            "### ⏳ THỜI GIAN\n"
+            f"> **{duration_text}**\n"
+            "### 📝 LÝ DO\n"
+            f"> **{reason}**\n"
+        )
+        items = [
+            discord.ui.TextDisplay(panel_text),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(f"-# Update <t:{int(time.time())}:f>"),
+        ]
+
+        container = discord.ui.Container(*items)
+        self.add_item(container)
+
+
+class BanCommandResultView(discord.ui.LayoutView):
+    def __init__(self, user: discord.Member):
+        super().__init__(timeout=None)
+
+        panel_text = (
+            "### 👤 ĐỐI TƯỢNG\n"
+            f"> {user.mention}\n"
+            "### ‼️ TRẠNG THÁI\n"
+            "> **Đã ban khỏi server.**\n"
+        )
+        items = [
+            discord.ui.TextDisplay(panel_text),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(f"-# Update <t:{int(time.time())}:f>"),
+        ]
+
+        container = discord.ui.Container(*items)
+        self.add_item(container)
+
+
+class GiaicuuCommandResultView(discord.ui.LayoutView):
+    def __init__(self, result_lines: list[str]):
+        super().__init__(timeout=None)
+
+        result_text = "\n".join(f"> {line}" for line in result_lines)
+        panel_text = (
+            "### 🚁 ĐỘI CỨU HỘ DADEN 🏥\n"
+            f"{result_text}\n"
+        )
+        items = [
+            discord.ui.TextDisplay(panel_text),
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(f"-# Update <t:{int(time.time())}:f>"),
+        ]
+
+        container = discord.ui.Container(*items)
+        self.add_item(container)
 
 
 # ── Data helpers ─────────────────────────────────────────────────────
@@ -133,8 +247,17 @@ class RadaoCog(commands.Cog):
         guild: discord.Guild,
         member: discord.Member,
         reason: str,
+        *,
+        notice_reason: str | None = None,
     ):
-        return await self.perform_radao_for_member(guild, member, None, None, reason)
+        return await self.perform_radao_for_member(
+            guild,
+            member,
+            None,
+            None,
+            reason,
+            notice_reason=notice_reason,
+        )
 
     def find_radao_channel(self, guild: discord.Guild, member_id: int):
         category = guild.get_channel(config.TARGET_CATEGORY_ID)
@@ -152,8 +275,11 @@ class RadaoCog(commands.Cog):
         seconds: int | None,
         period: str | None,
         reason: str,
+        *,
+        notice_reason: str | None = None,
     ):
-        permanent = seconds is None
+        now = int(time.time())
+        permanent = duration_exceeds_discord_timestamp(seconds, now=now)
         role_radao = guild.get_role(config.TARGET_ROLE_ID)
         category = guild.get_channel(config.TARGET_CATEGORY_ID)
 
@@ -182,7 +308,7 @@ class RadaoCog(commands.Cog):
                 except Exception:
                     pass
 
-            end_time_timestamp = None if permanent else int(time.time() + seconds)
+            end_time_timestamp = None if permanent else now + seconds
 
             self.add_radao_member(member.id, reason, end_time_timestamp, saved_role_ids)
 
@@ -207,14 +333,20 @@ class RadaoCog(commands.Cog):
                 )
 
             try:
+                notice_view = RadaoNoticeView(
+                    member,
+                    reason,
+                    end_timestamp=end_time_timestamp,
+                    notice_reason=notice_reason,
+                )
+                await channel.send(view=notice_view)
+            except Exception:
                 if permanent:
                     await channel.send(
                         "\n".join(
                             [
                                 f"Chào mừng {member.mention} đến với đảo. Bạn sẽ nằm ở đây cho đến khi nào mod thả bạn.",
                                 f"Lý do ra đảo: **{reason}**",
-                                "Ngồi đây nhìn Ngài quái thú đi nhé :Đ!",
-                                "https://media.tenor.com/7gPeCS7WydIAAAAd/mr-beast-mrbeast.gif",
                             ]
                         )
                     )
@@ -226,13 +358,9 @@ class RadaoCog(commands.Cog):
                             [
                                 f"Chào mừng {member.mention} đến với đảo! Về bờ sau {discord_timestamp} ({full_date_timestamp}).",
                                 f"Lý do ra đảo: **{reason}**",
-                                "Ngồi đây bị Rick Lăn nhé :Đ!",
-                                "https://tenor.com/view/rickroll-roll-rick-never-gonna-give-you-up-never-gonna-gif-22954713",
                             ]
                         )
                     )
-            except Exception:
-                await channel.send("Lần này méo có rick roll may đấy")
 
             if permanent:
                 return channel
@@ -438,6 +566,7 @@ class RadaoCog(commands.Cog):
 
         await interaction.response.defer()
         msg = []
+        duration_text = format_duration_display(seconds, period)
         for m in targets:
             if m.id == interaction.user.id:
                 if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
@@ -455,10 +584,16 @@ class RadaoCog(commands.Cog):
                 self.perform_radao(interaction, m, seconds, period, reason)
             )
             msg.append(
-                f"Bonk🔨 bà zà mài {m.mention} ra đảo trong {period} lý do: {reason}."
+                f"Bonk🔨 bà zà mài {m.mention} ra đảo."
             )
 
-        await interaction.followup.send("\n".join(msg))
+        await interaction.followup.send(
+            view=RadaoCommandResultView(
+                msg,
+                duration_text=duration_text,
+                reason=reason,
+            )
+        )
 
     @app_commands.command(
         name="ban", description="Ban khỉ khỏi server."
@@ -473,7 +608,7 @@ class RadaoCog(commands.Cog):
 
         await interaction.response.defer()
         await interaction.guild.ban(user, reason=f"Slash /ban bởi {interaction.user}")
-        await interaction.followup.send(f"{user.mention} đã pay màu khỏi server.")
+        await interaction.followup.send(view=BanCommandResultView(user))
 
     @app_commands.command(
         name="giaicuu", description="Giải cứu khỉ khỏi đảo hoặc vườn thú."
@@ -512,7 +647,7 @@ class RadaoCog(commands.Cog):
                 msg.append(f"{m.mention} đã được thả về tự nhiên.")
             else:
                 msg.append(f"{m.mention} không bị radao hoặc nhapkho.")
-        await interaction.followup.send("\n".join(msg))
+        await interaction.followup.send(view=GiaicuuCommandResultView(msg))
 
 
 # ── Setup function (required for cog loading) ───────────────────────
