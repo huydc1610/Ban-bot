@@ -1,0 +1,19 @@
+services:
+  ban-bot:
+    build:
+      context: .
+      dockerfile: dockerfile
+    image: ban-bot:local
+    container_name: ban-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      CLEAR_GLOBAL_COMMANDS_ON_STARTUP: "1"
+      CONFIG_RELOAD_INTERVAL_SECONDS: "2"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./data:/data
+      - ./config.py:/app/config.py:ro
+    stop_grace_period: 30s
