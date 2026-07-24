@@ -41,7 +41,7 @@ class NhapKhoNoticeView(discord.ui.LayoutView):
             "### 👤 ĐỐI TƯỢNG\n"
             f"> {member.mention}\n"
             "### ⏳ HÃY CÙNG ĐẾM NGƯỢC\n"
-            f"> **{duration_text}**\n"
+            f"> **{end_time_text}**\n"
             "### 📝 LÝ DO\n"
             f"> **{reason}**\n"
         )
