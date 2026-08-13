@@ -71,6 +71,7 @@ INITIAL_COGS = [
     "cogs.radao",
     "cogs.nhapkho",
     "cogs.autoban",
+    "cogs.autokick",
 ]
 
 

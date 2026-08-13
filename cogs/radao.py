@@ -22,6 +22,8 @@ from cogs.common import (
 )
 
 DATA_FILE = os.path.join(config.DATA_DIR, "radao_data.json")
+RADAO_EXPIRE_ACTION_BAN = "ban"
+AUTOBAN_EXPIRED_BAN_REASON = "Autoban: không được gỡ radao sau 1 tuần"
 
 
 class RadaoNoticeView(discord.ui.LayoutView):
@@ -74,17 +76,28 @@ class RadaoNoticeView(discord.ui.LayoutView):
 
 
 class RadaoCommandResultView(discord.ui.LayoutView):
-    def __init__(self, result_lines: list[str], *, duration_text: str, reason: str):
+    def __init__(
+        self,
+        result_lines: list[str],
+        *,
+        duration_text: str,
+        reason: str,
+        reason_lines: list[str] | None = None,
+    ):
         super().__init__(timeout=None)
 
         result_text = "\n".join(f"> {line}" for line in result_lines)
+        if not result_text:
+            result_text = "> Không có đối tượng nào được xử lý."
+        reason_entries = [reason, *(reason_lines or [])]
+        reason_text = "\n".join(f"> **{line}**" for line in reason_entries)
         panel_text = (
             "### 👤 ĐỐI TƯỢNG\n"
             f"{result_text}\n"
             "### ⏳ THỜI GIAN\n"
             f"> **{duration_text}**\n"
             "### 📝 LÝ DO\n"
-            f"> **{reason}**\n"
+            f"{reason_text}\n"
         )
         items = [
             discord.ui.TextDisplay(panel_text),
@@ -97,14 +110,27 @@ class RadaoCommandResultView(discord.ui.LayoutView):
 
 
 class BanCommandResultView(discord.ui.LayoutView):
-    def __init__(self, user: discord.Member):
+    def __init__(
+        self,
+        user: discord.Member,
+        *,
+        status: str = "Đã ban khỏi server.",
+        reason: str | None = None,
+    ):
         super().__init__(timeout=None)
 
+        reason_text = ""
+        if reason:
+            reason_text = (
+                "### 📝 LÝ DO\n"
+                f"> **{reason}**\n"
+            )
         panel_text = (
             "### 👤 ĐỐI TƯỢNG\n"
             f"> {user.mention}\n"
             "### ‼️ TRẠNG THÁI\n"
-            "> **Đã ban khỏi server.**\n"
+            f"> **{status}**\n"
+            f"{reason_text}"
         )
         items = [
             discord.ui.TextDisplay(panel_text),
@@ -160,19 +186,81 @@ class RadaoCog(commands.Cog):
         reason: str,
         end_timestamp: int | None,
         saved_roles: list[int],
+        expire_action: str | None = None,
     ):
-        self.radao_data[str(member_id)] = {
+        data = {
             "reason": reason,
             "end_timestamp": end_timestamp,
             "saved_roles": saved_roles,
             "permanent": end_timestamp is None,
         }
+        if expire_action:
+            data["expire_action"] = expire_action
+        self.radao_data[str(member_id)] = data
         save_radao_data(self.radao_data)
 
     def remove_radao_member(self, member_id: int):
         if str(member_id) in self.radao_data:
             del self.radao_data[str(member_id)]
             save_radao_data(self.radao_data)
+
+    async def delete_radao_channel(self, guild: discord.Guild, member_id: int):
+        channel = self.find_radao_channel(guild, member_id)
+        if not channel:
+            return
+        try:
+            await channel.delete()
+        except Exception:
+            pass
+
+    async def ban_expired_radao_member(self, guild: discord.Guild, member_id: int) -> bool:
+        member = guild.get_member(member_id)
+        target = member or discord.Object(id=member_id)
+        try:
+            await guild.ban(target, reason=AUTOBAN_EXPIRED_BAN_REASON)
+        except discord.Forbidden as e:
+            print(f"[RadaoCog] Không đủ quyền ban autoban member {member_id}: {e}")
+            return False
+        except discord.HTTPException as e:
+            print(f"[RadaoCog] Discord API lỗi khi ban autoban member {member_id}: {e}")
+            return False
+
+        await self.delete_radao_channel(guild, member_id)
+        self.temp_saved_roles.pop(member_id, None)
+        self.remove_radao_member(member_id)
+        return True
+
+    async def handle_expired_radao(
+        self,
+        guild: discord.Guild,
+        member_id: int,
+        info: dict | None = None,
+    ):
+        info = info or self.radao_data.get(str(member_id), {})
+        if not info:
+            return
+
+        if info.get("expire_action") == RADAO_EXPIRE_ACTION_BAN:
+            await self.ban_expired_radao_member(guild, member_id)
+            return
+
+        member = guild.get_member(member_id)
+        if member:
+            role_radao = guild.get_role(config.TARGET_ROLE_ID)
+            saved = info.get("saved_roles", [])
+            roles_to_add = role_ids_to_roles(guild, saved)
+            roles_to_remove = [role_radao] if role_radao and role_radao in member.roles else []
+            try:
+                await apply_role_update(
+                    member,
+                    roles_to_add=roles_to_add,
+                    roles_to_remove=roles_to_remove,
+                    reason="Radao expired",
+                )
+            except Exception:
+                pass
+            await self.delete_radao_channel(guild, member_id)
+        self.remove_radao_member(member_id)
 
     # ── Role helpers ─────────────────────────────────────────────────
     async def restore_roles(
@@ -259,6 +347,25 @@ class RadaoCog(commands.Cog):
             notice_reason=notice_reason,
         )
 
+    async def perform_autoban_radao(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        seconds: int,
+        reason: str,
+        *,
+        notice_reason: str | None = None,
+    ):
+        return await self.perform_radao_for_member(
+            guild,
+            member,
+            seconds,
+            "7d",
+            reason,
+            notice_reason=notice_reason,
+            expire_action=RADAO_EXPIRE_ACTION_BAN,
+        )
+
     def find_radao_channel(self, guild: discord.Guild, member_id: int):
         category = guild.get_channel(config.TARGET_CATEGORY_ID)
         if not category:
@@ -277,6 +384,7 @@ class RadaoCog(commands.Cog):
         reason: str,
         *,
         notice_reason: str | None = None,
+        expire_action: str | None = None,
     ):
         now = int(time.time())
         permanent = duration_exceeds_discord_timestamp(seconds, now=now)
@@ -310,7 +418,13 @@ class RadaoCog(commands.Cog):
 
             end_time_timestamp = None if permanent else now + seconds
 
-            self.add_radao_member(member.id, reason, end_time_timestamp, saved_role_ids)
+            self.add_radao_member(
+                member.id,
+                reason,
+                end_time_timestamp,
+                saved_role_ids,
+                expire_action=expire_action,
+            )
 
             channel = self.find_radao_channel(guild, member.id)
             if not channel:
@@ -372,12 +486,7 @@ class RadaoCog(commands.Cog):
             if current_info.get("end_timestamp") != end_time_timestamp:
                 return channel
 
-            member = guild.get_member(member_id)
-            if member and role_radao in member.roles:
-                await self.restore_roles(guild, member, roles_to_remove=[role_radao])
-            self.remove_radao_member(member_id)
-            if channel:
-                await channel.delete()
+            await self.handle_expired_radao(guild, member_id, current_info)
             return channel
         except Exception as e:
             print(f"Lỗi quy trình: {e}")
@@ -388,31 +497,13 @@ class RadaoCog(commands.Cog):
     ):
         await asyncio.sleep(remaining_seconds)
         info = self.radao_data.get(str(member_id), {})
+        if not info:
+            return
         end_timestamp = info.get("end_timestamp")
         if end_timestamp is None or int(end_timestamp) > int(time.time()):
             return
 
-        member = guild.get_member(member_id)
-        if member:
-            role_radao = guild.get_role(config.TARGET_ROLE_ID)
-            saved = info.get("saved_roles", [])
-            roles_to_add = role_ids_to_roles(guild, saved)
-            roles_to_remove = [role_radao] if role_radao and role_radao in member.roles else []
-            try:
-                await apply_role_update(
-                    member,
-                    roles_to_add=roles_to_add,
-                    roles_to_remove=roles_to_remove,
-                    reason="Radao expired",
-                )
-            except Exception:
-                pass
-            cat = guild.get_channel(config.TARGET_CATEGORY_ID)
-            if cat:
-                for c in cat.text_channels:
-                    if str(member_id) in (c.topic or "") or str(member_id) in c.name:
-                        await c.delete()
-        self.remove_radao_member(member_id)
+        await self.handle_expired_radao(guild, member_id, info)
 
     # ── Events (Listeners) ───────────────────────────────────────────
     @commands.Cog.listener()
@@ -444,32 +535,7 @@ class RadaoCog(commands.Cog):
 
             remaining = int(end_timestamp) - now
             if remaining <= 0:
-                # Hết hạn — gỡ role & xóa channel
-                if member:
-                    role_radao = guild.get_role(config.TARGET_ROLE_ID)
-                    saved = info.get("saved_roles", [])
-                    roles_to_add = role_ids_to_roles(guild, saved)
-                    roles_to_remove = [
-                        role_radao
-                    ] if role_radao and role_radao in member.roles else []
-                    try:
-                        await apply_role_update(
-                            member,
-                            roles_to_add=roles_to_add,
-                            roles_to_remove=roles_to_remove,
-                            reason="Radao expired",
-                        )
-                    except Exception:
-                        pass
-                    cat = guild.get_channel(config.TARGET_CATEGORY_ID)
-                    if cat:
-                        for c in cat.text_channels:
-                            if (
-                                str(member_id) in (c.topic or "")
-                                or str(member_id) in c.name
-                            ):
-                                await c.delete()
-                self.remove_radao_member(member_id)
+                await self.handle_expired_radao(guild, member_id, info)
             else:
                 # Còn hạn — đảm bảo role và resume timer
                 if member:
@@ -504,7 +570,7 @@ class RadaoCog(commands.Cog):
             now = int(time.time())
             remaining = int(end_timestamp) - now
             if remaining <= 0:
-                self.remove_radao_member(member.id)
+                await self.handle_expired_radao(guild, member.id, info)
                 return
 
         removable_role_ids = roles_to_remove_ids()
@@ -522,12 +588,7 @@ class RadaoCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
-        channel = self.find_radao_channel(guild, user.id)
-        if channel:
-            try:
-                await channel.delete()
-            except Exception:
-                pass
+        await self.delete_radao_channel(guild, user.id)
 
         self.temp_saved_roles.pop(user.id, None)
         self.remove_radao_member(user.id)
@@ -566,6 +627,7 @@ class RadaoCog(commands.Cog):
 
         await interaction.response.defer()
         msg = []
+        reason_notes = []
         duration_text = format_duration_display(seconds, period)
         for m in targets:
             if m.id == interaction.user.id:
@@ -575,10 +637,14 @@ class RadaoCog(commands.Cog):
             else:
                 target_top_role = effective_top_role(m)
                 if target_top_role > interaction.user.top_role:
-                    msg.append(f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn.")
+                    reason_notes.append(
+                        f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn."
+                    )
                     continue
                 if target_top_role == interaction.user.top_role:
-                    msg.append(f"Không thể timeout {m.mention} — người này có cùng role với bạn.")
+                    reason_notes.append(
+                        f"Không thể timeout {m.mention} — người này có cùng role với bạn."
+                    )
                     continue
             asyncio.create_task(
                 self.perform_radao(interaction, m, seconds, period, reason)
@@ -592,6 +658,7 @@ class RadaoCog(commands.Cog):
                 msg,
                 duration_text=duration_text,
                 reason=reason,
+                reason_lines=reason_notes,
             )
         )
 
@@ -607,7 +674,16 @@ class RadaoCog(commands.Cog):
             )
 
         await interaction.response.defer()
-        await interaction.guild.ban(user, reason=f"Slash /ban bởi {interaction.user}")
+        try:
+            await interaction.guild.ban(user, reason=f"Slash /ban bởi {interaction.user}")
+        except discord.Forbidden:
+            return await interaction.followup.send(
+                view=BanCommandResultView(
+                    user,
+                    status="Không ban được.",
+                    reason="Bot không đủ quyền ban người này. Hãy kiểm tra role bot và quyền Ban Members.",
+                )
+            )
         await interaction.followup.send(view=BanCommandResultView(user))
 
     @app_commands.command(

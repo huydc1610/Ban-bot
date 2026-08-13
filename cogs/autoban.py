@@ -4,8 +4,10 @@ from discord.ext import commands
 import config
 from cogs.common import autoban_ignored_role_ids
 
-AUTOBAN_REASON = "Thí sinh Mr Beast tiềm năng"
-AUTOBAN_NOTICE_REASON = "Do quảng cáo lừa đảo bạn sẽ nằm ở đây cho đến khi nào mod thả bạn."
+AUTOBAN_REASON = "Người đòi solo với cối xay gió"
+AUTOBAN_NOTICE_REASON = "Do nhắn vào kênh chỉ định. Nếu không được gỡ sau 1 tuần, bot sẽ ban khỏi server."
+AUTOBAN_RADAO_SECONDS = 7 * 24 * 60 * 60
+AUTOBAN_EXPIRE_ACTION = "ban"
 
 
 def watch_channel_id() -> int:
@@ -66,7 +68,7 @@ def is_message_from_member(message: discord.Message, member_id: int) -> bool:
 
 
 class AutobanCog(commands.Cog):
-    """Honeypot cog: nhắn vào kênh bẫy là ra đảo vĩnh viễn."""
+    """Honeypot cog: nhắn vào kênh bẫy là ra đảo 1 tuần rồi ban nếu không được gỡ."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -112,15 +114,16 @@ class AutobanCog(commands.Cog):
 
     async def radao_member(self, guild: discord.Guild, member: discord.Member):
         radao_cog = self.bot.get_cog("RadaoCog")
-        if not radao_cog or not hasattr(radao_cog, "perform_permanent_radao"):
+        if not radao_cog or not hasattr(radao_cog, "perform_autoban_radao"):
             print("[AutobanCog] Không tìm thấy RadaoCog để xử lý autoban.")
             return
         info = getattr(radao_cog, "radao_data", {}).get(str(member.id), {})
-        if info.get("end_timestamp") is None and info.get("permanent"):
+        if info.get("end_timestamp") is not None and info.get("expire_action") == AUTOBAN_EXPIRE_ACTION:
             return radao_cog.find_radao_channel(guild, member.id)
-        return await radao_cog.perform_permanent_radao(
+        return await radao_cog.perform_autoban_radao(
             guild,
             member,
+            AUTOBAN_RADAO_SECONDS,
             AUTOBAN_REASON,
             notice_reason=AUTOBAN_NOTICE_REASON,
         )
