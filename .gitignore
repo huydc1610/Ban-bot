@@ -7,3 +7,7 @@ __*
 !docker-compose.yml
 !dockerfile
 !.dockerignore
+/build/
+# Added by code-review-graph
+.code-review-graph/
+opencode.jsonc

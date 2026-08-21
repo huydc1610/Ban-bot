@@ -57,7 +57,7 @@ SELF_BAN_ALLOWED_ID = 1397455938214039723
 # 2. COG: RA ĐẢO (radao.py)
 # =====================================================================
 # Role "ra đảo" — sẽ được gán cho member khi bị radao
-TARGET_ROLE_ID = 1536661024655286393
+TARGET_ROLE_ID = 1536660908699287572
 
 # Category chứa các channel đảo
 TARGET_CATEGORY_ID = 1536661272488185896
@@ -67,7 +67,7 @@ TARGET_CATEGORY_ID = 1536661272488185896
 # 3. COG: NHẬP KHO (nhapkho.py)
 # =====================================================================
 # Role "nhập kho" — sẽ được gán cho member khi bị nhập kho
-NHAPKHO_ROLE_ID = 1536660908699287572
+NHAPKHO_ROLE_ID = 1536661024655286393
 
 # Channel thông báo khi nhập kho
 NHAPKHO_LOG_CHANNEL_ID = 1536662211425206372
@@ -108,4 +108,4 @@ AUTO_KICK_ROLE_ID = 1536347679070621696
 AUTO_KICK_DAYS = 3
 
 # Channel ghi log khi bot kick người dùng
-CHANNEL_LOGS_BOT = int_env_or_existing("CHANNEL_LOGS_BOT", 0)
+CHANNEL_LOGS_BOT = 1536097860632715374
