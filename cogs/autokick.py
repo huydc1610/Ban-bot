@@ -52,7 +52,7 @@ class AutoKick(commands.Cog):
                                 color=discord.Color.red()
                             )
                             embed.add_field(name="Lý do", value=f"Quá {config.AUTO_KICK_DAYS} ngày không verify", inline=False)
-                            embed.add_field(name="Ngày tham gia", value=f"<t:{int(member.joined_at.timestamp())}:R>", inline=False)
+                            embed.add_field(name="Ngày tham gia", value=f"<t:{int(member.joined_at.timestamp())}:D>", inline=False)
                             await log_channel.send(embed=embed)
                     except discord.Forbidden:
                         print(f"[AutoKick] Lỗi: Không đủ quyền để kick {member.name} ({member.id})")
