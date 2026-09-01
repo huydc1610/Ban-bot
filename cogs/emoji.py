@@ -81,9 +81,8 @@ async def fetch_emoji_bytes(emoji: CustomEmoji) -> bytes:
 
 
 class EmojiUploadView(discord.ui.View):
-    def __init__(self, bot: commands.Bot | None, requester_id: int, emoji: CustomEmoji):
+    def __init__(self, requester_id: int, emoji: CustomEmoji):
         super().__init__(timeout=EMOJI_VIEW_TIMEOUT_SECONDS)
-        self.bot = bot
         self.requester_id = requester_id
         self.emoji = emoji
 
@@ -141,8 +140,9 @@ class EmojiUploadView(discord.ui.View):
                 content="Bot không đủ quyền để tạo emoji trong server.", view=self
             )
         except discord.HTTPException as error:
+            detail = getattr(error, "text", None) or "Discord từ chối yêu cầu."
             return await interaction.message.edit(
-                content=f"Không thể upload `:{self.emoji.name}:`: {error.text or 'Discord từ chối yêu cầu.'}",
+                content=f"Không thể upload `:{self.emoji.name}:`: {detail}",
                 view=self,
             )
 
@@ -192,7 +192,7 @@ class EmojiCog(commands.Cog):
             await interaction.followup.send(
                 content="Bấm nút bên dưới để upload emoji này.",
                 embed=embed,
-                view=EmojiUploadView(self.bot, interaction.user.id, emoji),
+                view=EmojiUploadView(interaction.user.id, emoji),
                 ephemeral=True,
             )
 
