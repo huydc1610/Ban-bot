@@ -45,7 +45,6 @@ IGNORED_BANNED_USER_ID_SET = frozenset(IGNORED_BANNED_USERS)
 # Các role sẽ bị gỡ khi member ra đảo hoặc nhập kho (và trả lại khi về bờ/xuất kho)
 ROLES_TO_REMOVE = [
     1536380806296117258,
-    1535268950324019271
 ]
 ROLES_TO_REMOVE_ID_SET = frozenset(ROLES_TO_REMOVE)
 
