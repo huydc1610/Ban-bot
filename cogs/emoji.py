@@ -53,6 +53,18 @@ def cdn_url(emoji_id: int, *, animated: bool) -> str:
     return f"https://cdn.discordapp.com/emojis/{emoji_id}.{extension}"
 
 
+def build_emoji_embed(emoji: CustomEmoji) -> discord.Embed:
+    url = cdn_url(emoji.id, animated=emoji.animated)
+    embed = discord.Embed(color=0x2B2D31)
+    embed.description = (
+        f"**Emoji name:** `{emoji.name}`\n"
+        f"**ID emoji:** `{emoji.id}`\n"
+        f"**Emoji link:** [Can be clicked/copied]({url})"
+    )
+    embed.set_thumbnail(url=url)
+    return embed
+
+
 def has_manage_expressions(permissions) -> bool:
     return bool(getattr(permissions, "manage_expressions", False))
 
@@ -95,7 +107,7 @@ class EmojiUploadView(discord.ui.View):
         )
         return False
 
-    @discord.ui.button(label="Upload emoji", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Upload to server", style=discord.ButtonStyle.green)
     async def upload_emoji(
         self,
         interaction: discord.Interaction,
@@ -147,6 +159,8 @@ class EmojiUploadView(discord.ui.View):
             )
 
         button.disabled = True
+        button.label = "Uploaded"
+        button.style = discord.ButtonStyle.secondary
         self.stop()
         await interaction.message.edit(
             content=f"Đã upload {created} thành công.", view=self
@@ -187,11 +201,8 @@ class EmojiCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
         for emoji in parsed_emojis:
-            embed = discord.Embed(title=f"Emoji: :{emoji.name}:")
-            embed.set_image(url=cdn_url(emoji.id, animated=emoji.animated))
             await interaction.followup.send(
-                content="Bấm nút bên dưới để upload emoji này.",
-                embed=embed,
+                embed=build_emoji_embed(emoji),
                 view=EmojiUploadView(interaction.user.id, emoji),
                 ephemeral=True,
             )
