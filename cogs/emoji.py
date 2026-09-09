@@ -199,12 +199,12 @@ class EmojiCog(commands.Cog):
                 ephemeral=True,
             )
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(thinking=True)
         for emoji in parsed_emojis:
             await interaction.followup.send(
                 embed=build_emoji_embed(emoji),
                 view=EmojiUploadView(interaction.user.id, emoji),
-                ephemeral=True,
+                ephemeral=False,
             )
 
 

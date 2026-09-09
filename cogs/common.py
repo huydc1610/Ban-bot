@@ -115,6 +115,9 @@ def save_json_dict(path: str | os.PathLike, data: dict):
 
 
 def has_allowed_role(interaction: discord.Interaction) -> bool:
+    if is_guild_owner(interaction):
+        return True
+
     roles = getattr(interaction.user, "roles", ())
     blocked_role_ids = command_blocked_role_ids()
     if any(role.id in blocked_role_ids for role in roles):
@@ -125,6 +128,22 @@ def has_allowed_role(interaction: discord.Interaction) -> bool:
         return True
 
     return any(role.id in allowed_role_ids() for role in roles)
+
+
+def is_guild_owner(interaction: discord.Interaction) -> bool:
+    guild = getattr(interaction, "guild", None)
+    owner_id = getattr(guild, "owner_id", None)
+    return owner_id is not None and owner_id == getattr(interaction.user, "id", None)
+
+
+def shares_allowed_role(
+    first_member: discord.Member,
+    second_member: discord.Member,
+) -> bool:
+    allowed_ids = allowed_role_ids()
+    first_role_ids = {role.id for role in getattr(first_member, "roles", ())}
+    second_role_ids = {role.id for role in getattr(second_member, "roles", ())}
+    return bool(allowed_ids & first_role_ids & second_role_ids)
 
 
 def convert_time(time_str: str) -> int:

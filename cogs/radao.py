@@ -14,11 +14,13 @@ from cogs.common import (
     format_discord_end_time,
     format_duration_display,
     has_allowed_role,
+    is_guild_owner,
     load_json_dict,
     parse_monkeys,
     role_ids_to_roles,
     roles_to_remove_ids,
     save_json_dict,
+    shares_allowed_role,
 )
 
 DATA_FILE = os.path.join(config.DATA_DIR, "radao_data.json")
@@ -630,22 +632,26 @@ class RadaoCog(commands.Cog):
         reason_notes = []
         duration_text = format_duration_display(seconds, period)
         for m in targets:
-            if m.id == interaction.user.id:
-                if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
-                    msg.append("Đừng tự bắn vào chân thế chứ bro")
-                    continue
-            else:
-                target_top_role = effective_top_role(m)
-                if target_top_role > interaction.user.top_role:
-                    reason_notes.append(
-                        f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn."
-                    )
-                    continue
-                if target_top_role == interaction.user.top_role:
-                    reason_notes.append(
-                        f"Không thể timeout {m.mention} — người này có cùng role với bạn."
-                    )
-                    continue
+            if not is_guild_owner(interaction):
+                if m.id == interaction.user.id:
+                    if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
+                        msg.append("Đừng tự bắn vào chân thế chứ bro")
+                        continue
+                else:
+                    target_top_role = effective_top_role(m)
+                    if target_top_role > interaction.user.top_role:
+                        reason_notes.append(
+                            f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn."
+                        )
+                        continue
+                    if (
+                        target_top_role == interaction.user.top_role
+                        and not shares_allowed_role(interaction.user, m)
+                    ):
+                        reason_notes.append(
+                            f"Không thể timeout {m.mention} — người này có cùng role với bạn."
+                        )
+                        continue
             asyncio.create_task(
                 self.perform_radao(interaction, m, seconds, period, reason)
             )

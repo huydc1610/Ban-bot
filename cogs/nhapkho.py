@@ -14,11 +14,13 @@ from cogs.common import (
     format_discord_end_time,
     format_duration_display,
     has_allowed_role,
+    is_guild_owner,
     load_json_dict,
     parse_monkeys,
     role_ids_to_roles,
     roles_to_remove_ids,
     save_json_dict,
+    shares_allowed_role,
 )
 
 DATA_FILE = os.path.join(config.DATA_DIR, "nhapkho_data.json")
@@ -390,7 +392,7 @@ class NhapKhoCog(commands.Cog):
         interaction: discord.Interaction,
         monkeys: str,
         period: str,
-        reason: str = "Nhập kho",
+        reason: str = "Thích thì cho nhập kho",
     ):
         if not has_allowed_role(interaction):
             return await interaction.response.send_message(
@@ -413,23 +415,27 @@ class NhapKhoCog(commands.Cog):
         msg = []
         duration_text = format_duration_display(seconds, period)
         for m in targets:
-            if m.id == interaction.user.id:
-                if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
-                    msg.append("Đừng tự bắn vào chân thế chứ bro")
-                    continue
-            else:
-                target_top_role = effective_top_role(m)
-                if target_top_role > interaction.user.top_role:
-                    msg.append(f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn.")
-                    continue
-                if target_top_role == interaction.user.top_role:
-                    msg.append(f"Không thể timeout {m.mention} — người này có cùng role với bạn.")
-                    continue
+            if not is_guild_owner(interaction):
+                if m.id == interaction.user.id:
+                    if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
+                        msg.append("Đừng tự bắn vào chân thế chứ bro")
+                        continue
+                else:
+                    target_top_role = effective_top_role(m)
+                    if target_top_role > interaction.user.top_role:
+                        msg.append(f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn.")
+                        continue
+                    if (
+                        target_top_role == interaction.user.top_role
+                        and not shares_allowed_role(interaction.user, m)
+                    ):
+                        msg.append(f"Không thể timeout {m.mention} — người này có cùng role với bạn.")
+                        continue
             asyncio.create_task(
                 self.perform_nhapkho(interaction, m, seconds, period, reason)
             )
             msg.append(
-                f"{m.mention} đã bị gửi vào vườn thú."
+                f"{m.mention} đã bị gửi vào <#{config.NHAPKHO_LOG_CHANNEL_ID}>"
             )
 
         await interaction.followup.send(

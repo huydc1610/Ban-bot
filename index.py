@@ -73,6 +73,7 @@ INITIAL_COGS = [
     "cogs.autoban",
     "cogs.autokick",
     "cogs.emoji",
+    "cogs.sticker",
 ]
 
 
