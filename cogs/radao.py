@@ -7,6 +7,8 @@ import time
 
 import config
 from cogs.common import (
+    allowed_role_ids,
+    allowed_user_ids,
     apply_role_update,
     convert_time,
     duration_exceeds_discord_timestamp,
@@ -49,7 +51,7 @@ class RadaoNoticeView(discord.ui.LayoutView):
             time_text = (
                 end_time_text
                 if end_time_text == "infinity"
-                else f"Về bờ sau {end_time_text}."
+                else f"Kick sau {end_time_text}."
             )
         display_reason = notice_reason or reason
 
@@ -330,6 +332,7 @@ class RadaoCog(commands.Cog):
             seconds,
             period,
             reason,
+            moderator=interaction.user,
         )
 
     async def perform_permanent_radao(
@@ -387,6 +390,7 @@ class RadaoCog(commands.Cog):
         *,
         notice_reason: str | None = None,
         expire_action: str | None = None,
+        moderator: discord.Member | None = None,
     ):
         now = int(time.time())
         permanent = duration_exceeds_discord_timestamp(seconds, now=now)
@@ -429,7 +433,33 @@ class RadaoCog(commands.Cog):
             )
 
             channel = self.find_radao_channel(guild, member.id)
-            if not channel:
+            private_channel = moderator is not None or expire_action == RADAO_EXPIRE_ACTION_BAN
+            if private_channel:
+                # /radao và autoban dùng quyền riêng, không kế thừa quyền mở từ category.
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(
+                        view_channel=False,
+                        send_messages=False,
+                    ),
+                }
+                participants = [member, guild.me]
+                if moderator is not None:
+                    participants.append(moderator)
+                participants.extend(
+                    role for role_id in allowed_role_ids()
+                    if (role := guild.get_role(role_id)) is not None
+                )
+                participants.extend(
+                    guild.get_member(user_id) or discord.Object(id=user_id)
+                    for user_id in allowed_user_ids()
+                )
+                for participant in participants:
+                    overwrites[participant] = discord.PermissionOverwrite(
+                        view_channel=True,
+                        send_messages=True,
+                        read_message_history=True,
+                    )
+            elif not channel:
                 overwrites = dict(category.overwrites)
                 overwrites[member] = discord.PermissionOverwrite(
                     read_messages=True,
@@ -441,12 +471,16 @@ class RadaoCog(commands.Cog):
                         read_messages=False,
                     )
 
+            if not channel:
+                channel_prefix = "ban-scamer" if expire_action == RADAO_EXPIRE_ACTION_BAN else "dao-khi"
                 channel = await guild.create_text_channel(
-                    name=f"dao-khi-{member.display_name}",
+                    name=f"{channel_prefix}-{member.display_name}",
                     category=category,
                     topic=f"ID: {member.id} | Ra đảo vì: {reason}",
                     overwrites=overwrites,
                 )
+            elif private_channel:
+                await channel.edit(overwrites=overwrites, reason=reason)
 
             try:
                 notice_view = RadaoNoticeView(
