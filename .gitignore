@@ -3,6 +3,7 @@ tests
 docker-compose.yml
 dockerfile
 .*
+!.env.example
 __*
 !docker-compose.yml
 !dockerfile

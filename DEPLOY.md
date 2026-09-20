@@ -1,8 +1,10 @@
-# Huong Dan Deploy Ban-bot Len VPS
+# Deploy Ban-bot lên VPS Linux
 
-Huong dan nay gia dinh VPS chay Ubuntu va da co quyen `sudo`.
+Tài liệu này triển khai bot bằng Docker Compose trên Ubuntu/Debian. Docker sẽ tự khởi động lại container sau khi tiến trình bot lỗi hoặc VPS reboot (`restart: unless-stopped`). Bot không mở cổng HTTP, vì vậy không cần cấu hình domain, Nginx hoặc firewall inbound cho bot này.
 
-## 1. Cai Docker va Docker Compose
+## 1. Chuẩn bị VPS
+
+Đăng nhập VPS bằng user có quyền `sudo`, rồi cài Docker Engine và Docker Compose plugin theo tài liệu Docker chính thức. Với Ubuntu, các lệnh sau là đủ:
 
 ```bash
 sudo apt update
@@ -14,131 +16,89 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
 ```
 
-Neu VPS khong phai Ubuntu, cai Docker theo tai lieu chinh thuc cua distro do, mien la lenh `docker compose version` chay duoc.
+Đăng xuất rồi đăng nhập lại để group `docker` có hiệu lực. Kiểm tra:
 
-## 2. Lay source len VPS
+```bash
+docker compose version
+docker run --rm hello-world
+```
+
+## 2. Lấy source và tạo cấu hình bí mật
 
 ```bash
 mkdir -p ~/projects
 cd ~/projects
-git clone <URL_REPO_CUA_BAN> Ban-bot
+git clone https://github.com/mashiro161025/Ban-bot.git
 cd Ban-bot
-```
-
-Neu da clone repo roi:
-
-```bash
-cd ~/projects/Ban-bot
-git pull
-```
-
-## 3. Tao file moi truong
-
-Tao file `.env` tren VPS:
-
-```bash
-nano .env
+cp .env.example .env
 chmod 600 .env
+nano .env
 ```
 
-Noi dung toi thieu:
+Điền token vào `TOKEN`. Không gửi file `.env` qua Git, Discord, hoặc log. Nếu token từng bị lộ, hãy tạo token mới trong Discord Developer Portal trước khi deploy.
 
-```env
-TOKEN=DISCORD_BOT_TOKEN_CUA_BAN
-```
+Rà soát `config.py` và thay các ID Discord cho đúng server của bạn. File này được mount read-only vào container và bot sẽ tự reload khi thay đổi.
 
-Bot cung chap nhan bien `DISCORD_TOKEN`, nhung nen dung mot trong hai bien, khong can ca hai.
-
-## 4. Kiem tra `config.py`
-
-Mo `config.py` va sua cac ID cho dung server:
+## 3. Deploy lần đầu
 
 ```bash
-nano config.py
-```
-
-Nhung gia tri quan trong can dung:
-
-- `MAIN_GUILD_ID`
-- `TARGET_ROLE_ID`
-- `TARGET_CATEGORY_ID`
-- `NHAPKHO_ROLE_ID`
-- `NHAPKHO_LOG_CHANNEL_ID`
-- `ALLOWED_ROLE_IDS`
-- `ALLOWED_USER_IDS`
-- `AUTOBAN_CHANNEL_ID`
-
-`docker-compose.yml` se mount `./config.py` vao container, nen sua `config.py` tren VPS xong bot co the hot reload khi co interaction moi. Neu thay doi bien trong `.env`, hay restart container.
-
-## 5. Chay bot
-
-```bash
-mkdir -p data
-docker compose up -d --build
-```
-
-Xem log:
-
-```bash
+bash scripts/deploy-vps.sh
 docker compose logs -f ban-bot
 ```
 
-Neu thanh cong, log se co dang:
+Đợi log có `Logged in as ...` và thông báo đồng bộ slash command. Lệnh deploy sẽ dừng trước khi build nếu thiếu `.env`, Docker Compose không hợp lệ, hoặc Docker chưa được cài.
 
-```text
-Logged in as <ten bot> (ID: <id>)
------- BAT DAU DONG BO LENH ------
-```
+## 4. Cập nhật và rollback
 
-## 6. Quan ly bot
-
-Restart bot:
+Khi đã kiểm tra source mới:
 
 ```bash
-docker compose restart ban-bot
+git pull --ff-only
+bash scripts/deploy-vps.sh
 ```
 
-Dung bot:
+Nếu bản mới có lỗi, quay lại commit đã biết ổn định rồi chạy deploy lại:
 
 ```bash
-docker compose down
+git log --oneline -n 10
+git checkout <commit-da-kiem-tra>
+bash scripts/deploy-vps.sh
 ```
 
-Chay lai sau khi sua code:
+Sau khi xác nhận rollback, có thể tạo branch từ commit đó trước khi tiếp tục phát triển. Không dùng `git reset --hard` trên VPS vì có thể làm mất thay đổi cục bộ.
+
+## 5. Vận hành
 
 ```bash
-git pull
-docker compose up -d --build
-```
-
-Xem trang thai container:
-
-```bash
+# Xem trạng thái và log
 docker compose ps
+docker compose logs --tail=200 ban-bot
+
+# Restart sau khi đổi .env
+docker compose restart ban-bot
+
+# Dừng bot chủ động (restart policy sẽ không tự chạy lại khi Docker reboot)
+docker compose down
+
+# Chạy lại sau khi đã dừng
+bash scripts/deploy-vps.sh
 ```
 
-## 7. Backup va restore data
+## 6. Sao lưu
 
-Bot luu data runtime trong thu muc `./data` tren VPS. Backup nhanh:
+`data/`, `config.py`, và `.env` là dữ liệu cần giữ lại. Sao lưu chúng ở vị trí an toàn, ngoài repository:
 
 ```bash
-tar -czf ban-bot-data-backup-$(date +%Y%m%d-%H%M%S).tar.gz data config.py .env
+tar -czf "$HOME/ban-bot-backup-$(date +%Y%m%d-%H%M%S).tar.gz" data config.py .env
 ```
 
-Restore:
+Khi restore, dừng bot, giải nén bản sao lưu vào thư mục project, rồi chạy `bash scripts/deploy-vps.sh`.
 
-```bash
-tar -xzf ban-bot-data-backup-YYYYMMDD-HHMMSS.tar.gz
-docker compose up -d --build
-```
+## 7. Kiểm tra Discord sau deploy
 
-## 8. Luu y quyen Discord
-
-Trong Discord Developer Portal, bot can bat cac privileged intents phu hop voi code hien tai:
-
-- Server Members Intent
-- Message Content Intent
-
-Bot role trong server can cao hon cac role ma bot se gan/go va can quyen quan ly role/channel/message theo cac lenh ban dang dung.
+- Bật **Server Members Intent** và **Message Content Intent** trong Discord Developer Portal.
+- Bot role phải cao hơn các role mà bot cần gán/gỡ và có các quyền quản lý role, channel, message tương ứng.
+- Kiểm tra tối thiểu một slash command trong đúng server đã cấu hình. Container chạy không chứng minh bot có đủ quyền Discord.

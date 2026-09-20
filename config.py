@@ -102,7 +102,7 @@ AUTOBAN_DELETE_HISTORY_LIMIT = 100
 # 5. COG: AUTO KICK INACTIVE (autokick.py)
 # =====================================================================
 # Role chỉ định cần theo dõi để kick nếu quá hạn
-AUTO_KICK_ROLE_ID = 1551260926915776644
+AUTO_KICK_ROLE_ID = 1536347679070621696
 
 # Số ngày tối đa từ lúc tham gia server cho phép đối với role trên
 AUTO_KICK_DAYS = 3
