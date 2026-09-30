@@ -4,8 +4,8 @@ from discord.ext import commands
 import config
 from cogs.common import autoban_ignored_role_ids
 
-AUTOBAN_REASON = "Người đòi solo với cối xay gió"
-AUTOBAN_NOTICE_REASON = "Do nhắn vào kênh cấm. Nếu không được gỡ sau 1 tuần, bot sẽ ban khỏi server"
+AUTOBAN_REASON = "Nhắn vào kênh cấm đang chờ kháng cáo"
+AUTOBAN_NOTICE_REASON = "Do nhắn vào kênh cấm. Nếu không kháng cáo sau 1 tuần, bot sẽ ban khỏi server"
 AUTOBAN_RADAO_SECONDS = 7 * 24 * 60 * 60
 AUTOBAN_EXPIRE_ACTION = "ban"
 

@@ -1,18 +1,68 @@
+import asyncio
 import json
 import os
 import re
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import discord
 
 import config
 
-TIME_RE = re.compile(r"(\d+)([dhms])")
+TIME_RE = re.compile(r"(\d+)(mt|[ydhms])")
 MENTION_RE = re.compile(r"<@!?(\d+)>")
 MONKEY_SPLIT_RE = re.compile(r"[,\s]+")
 MAX_DISCORD_UNIX_TIMESTAMP = 253402300799
 INFINITE_TIME_TEXT = "infinity"
+MODERATION_COMMAND_DELAY_SECONDS = 2.0
+MODERATION_COMMAND_WINDOW_SECONDS = 3.0
+TIME_UNIT_SECONDS = {
+    "s": 1,
+    "m": 60,
+    "h": 60 * 60,
+    "d": 24 * 60 * 60,
+    "mt": 30 * 24 * 60 * 60,
+    "y": 365 * 24 * 60 * 60,
+}
+
+
+class ModerationCommandGate:
+    def __init__(
+        self,
+        *,
+        window_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+    ):
+        self.window_seconds = window_seconds
+        self.clock = clock
+        self.blocked_until_by_guild: dict[int, float] = {}
+
+    def try_acquire(self, guild_id: int) -> bool:
+        now = self.clock()
+        if now < self.blocked_until_by_guild.get(guild_id, 0.0):
+            return False
+        self.blocked_until_by_guild[guild_id] = now + self.window_seconds
+        return True
+
+
+_moderation_command_gate = ModerationCommandGate(
+    window_seconds=MODERATION_COMMAND_WINDOW_SECONDS,
+)
+
+
+async def begin_moderation_command(interaction: discord.Interaction) -> bool:
+    guild_id = interaction.guild_id
+    if not _moderation_command_gate.try_acquire(guild_id):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            pass
+        return False
+
+    await interaction.response.defer()
+    await asyncio.sleep(MODERATION_COMMAND_DELAY_SECONDS)
+    return True
 
 
 def duration_exceeds_discord_timestamp(
@@ -148,20 +198,10 @@ def shares_allowed_role(
 
 def convert_time(time_str: str) -> int:
     time_str = time_str.lower().replace(" ", "")
-    total_seconds = 0
     matches = TIME_RE.findall(time_str)
-    if not matches:
+    if not matches or "".join(value + unit for value, unit in matches) != time_str:
         return -1
-    for val, unit in matches:
-        val = int(val)
-        if unit == "s":
-            total_seconds += val
-        elif unit == "m":
-            total_seconds += val * 60
-        elif unit == "h":
-            total_seconds += val * 3600
-        elif unit == "d":
-            total_seconds += val * 86400
+    total_seconds = sum(int(value) * TIME_UNIT_SECONDS[unit] for value, unit in matches)
     return total_seconds if total_seconds > 0 else -1
 
 

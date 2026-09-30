@@ -99,7 +99,31 @@ AUTOBAN_DELETE_HISTORY_LIMIT = 100
 
 
 # =====================================================================
-# 5. COG: AUTO KICK INACTIVE (autokick.py)
+# 5. COG: AUTO MESSAGE VERIFY (automessage.py)
+# =====================================================================
+# Chỉ gửi thông báo khi bot này gắn role verify cho member.
+AUTO_MESSAGE_ACTOR_BOT_ID = int_env_or_existing(
+    "AUTO_MESSAGE_ACTOR_BOT_ID", 792081366862790687
+)
+
+# Role verify cần theo dõi.
+AUTO_MESSAGE_ROLE_ID = int_env_or_existing(
+    "AUTO_MESSAGE_ROLE_ID", 1551252815366586569
+)
+
+# Channel nhận thông báo verify.
+AUTO_MESSAGE_CHANNEL_ID = int_env_or_existing(
+    "AUTO_MESSAGE_CHANNEL_ID", 1513847926735241347
+)
+
+# User được đánh thức trong thông báo.
+AUTO_MESSAGE_NOTIFY_USER_ID = int_env_or_existing(
+    "AUTO_MESSAGE_NOTIFY_USER_ID", 960541228422815824
+)
+
+
+# =====================================================================
+# 6. COG: AUTO KICK INACTIVE (autokick.py)
 # =====================================================================
 # Role chỉ định cần theo dõi để kick nếu quá hạn
 AUTO_KICK_ROLE_ID = 1536347679070621696

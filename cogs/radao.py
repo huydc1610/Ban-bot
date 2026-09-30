@@ -10,6 +10,7 @@ from cogs.common import (
     allowed_role_ids,
     allowed_user_ids,
     apply_role_update,
+    begin_moderation_command,
     convert_time,
     duration_exceeds_discord_timestamp,
     effective_top_role,
@@ -24,10 +25,43 @@ from cogs.common import (
     save_json_dict,
     shares_allowed_role,
 )
+from cogs.nhapkho import NhapKhoCommandResultView
 
 DATA_FILE = os.path.join(config.DATA_DIR, "radao_data.json")
 RADAO_EXPIRE_ACTION_BAN = "ban"
 AUTOBAN_EXPIRED_BAN_REASON = "Autoban: không được gỡ radao sau 1 tuần"
+PUNISHMENT_RADAO = "radao"
+PUNISHMENT_NHAPKHO = "nhapkho"
+DEFAULT_PUNISH_REASONS = {
+    PUNISHMENT_RADAO: "Thằng ban thích thì cho ra đảo thôi",
+    PUNISHMENT_NHAPKHO: "Thằng ban thích thì cho nhập kho thôi",
+}
+
+
+def resolve_punishment_reason(punishment: str, reason: str | None) -> str:
+    return reason or DEFAULT_PUNISH_REASONS[punishment]
+
+
+def moderation_target_rejection(
+    interaction: discord.Interaction,
+    member: discord.Member,
+) -> str | None:
+    if is_guild_owner(interaction):
+        return None
+    if member.id == interaction.user.id:
+        if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
+            return "Đừng tự bắn vào chân thế chứ bro"
+        return None
+
+    target_top_role = effective_top_role(member)
+    if target_top_role > interaction.user.top_role:
+        return f"Bạn không thể timeout {member.mention} — người này có quyền cao hơn bạn."
+    if (
+        target_top_role == interaction.user.top_role
+        and not shares_allowed_role(interaction.user, member)
+    ):
+        return f"Không thể timeout {member.mention} — người này có cùng role với bạn."
+    return None
 
 
 class RadaoNoticeView(discord.ui.LayoutView):
@@ -40,19 +74,24 @@ class RadaoNoticeView(discord.ui.LayoutView):
         *,
         end_timestamp: int | None = None,
         notice_reason: str | None = None,
+        expire_action: str | None = None,
+        time_text: str | None = None,
     ):
         super().__init__(timeout=None)
 
-        permanent = end_timestamp is None
-        if permanent:
-            time_text = format_discord_end_time(end_timestamp, include_full=True)
-        else:
-            end_time_text = format_discord_end_time(end_timestamp, include_full=True)
-            time_text = (
-                end_time_text
-                if end_time_text == "infinity"
-                else f"Kick sau {end_time_text}."
-            )
+        if time_text is None:
+            permanent = end_timestamp is None
+            if permanent:
+                time_text = format_discord_end_time(end_timestamp, include_full=True)
+            else:
+                end_time_text = format_discord_end_time(end_timestamp, include_full=True)
+                if end_time_text == "infinity":
+                    time_text = end_time_text
+                elif expire_action == RADAO_EXPIRE_ACTION_BAN:
+                    time_text = f"Ban sau {end_time_text}."
+                else:
+                    time_text = f"Thả sau {end_time_text}."
+        self.time_text = time_text
         display_reason = notice_reason or reason
 
         panel_text = (
@@ -488,6 +527,7 @@ class RadaoCog(commands.Cog):
                     reason,
                     end_timestamp=end_time_timestamp,
                     notice_reason=notice_reason,
+                    expire_action=expire_action,
                 )
                 await channel.send(view=notice_view)
             except Exception:
@@ -503,10 +543,15 @@ class RadaoCog(commands.Cog):
                 else:
                     discord_timestamp = f"<t:{end_time_timestamp}:R>"
                     full_date_timestamp = f"<t:{end_time_timestamp}:F>"
+                    action_text = (
+                        f"Ban sau {discord_timestamp} ({full_date_timestamp})."
+                        if expire_action == RADAO_EXPIRE_ACTION_BAN
+                        else f"Về bờ sau {discord_timestamp} ({full_date_timestamp})."
+                    )
                     await channel.send(
                         "\n".join(
                             [
-                                f"Chào mừng {member.mention} đến với đảo! Về bờ sau {discord_timestamp} ({full_date_timestamp}).",
+                                f"Chào mừng {member.mention} đến với đảo! {action_text}",
                                 f"Lý do ra đảo: **{reason}**",
                             ]
                         )
@@ -631,18 +676,28 @@ class RadaoCog(commands.Cog):
 
     # ── Slash Commands ───────────────────────────────────────────────
     @app_commands.command(
-        name="radao", description="Cho khỉ ra đảo."
+        name="punish", description="Đưa một hoặc nhiều thành viên ra đảo hoặc nhập kho."
     )
     @app_commands.guilds(config.MAIN_GUILD_ID)
     @app_commands.describe(
-        monkeys="Tag hoặc ID", period="VD: 10m, 1h", reason="Lý do"
+        muc_phat="Mức phạt",
+        monkeys="Một hoặc nhiều tag/ID",
+        period="VD: 1s, 1m, 1h, 1d, 1mt, 1y hoặc chuỗi kết hợp",
+        reason="Lý do (không bắt buộc)",
     )
-    async def radao(
+    @app_commands.choices(
+        muc_phat=[
+            app_commands.Choice(name="Ra đảo", value=PUNISHMENT_RADAO),
+            app_commands.Choice(name="Nhập kho", value=PUNISHMENT_NHAPKHO),
+        ]
+    )
+    async def punish(
         self,
         interaction: discord.Interaction,
+        muc_phat: app_commands.Choice[str],
         monkeys: str,
         period: str,
-        reason: str = "Thằng ban thích thì cho thôi",
+        reason: str | None = None,
     ):
         if not has_allowed_role(interaction):
             return await interaction.response.send_message(
@@ -652,7 +707,7 @@ class RadaoCog(commands.Cog):
         seconds = convert_time(period)
         if seconds == -1:
             return await interaction.response.send_message(
-                "Sai thời gian (vd: 10m, 1h).", ephemeral=True
+                "Sai thời gian (vd: 1h30m, 1mt, 1y1d).", ephemeral=True
             )
 
         targets = parse_monkeys(interaction.guild, monkeys)
@@ -661,46 +716,57 @@ class RadaoCog(commands.Cog):
                 "Không tìm thấy người dùng.", ephemeral=True
             )
 
-        await interaction.response.defer()
-        msg = []
+        punishment = muc_phat.value
+        reason = resolve_punishment_reason(punishment, reason)
+        if punishment == PUNISHMENT_RADAO:
+            perform_punishment = self.perform_radao
+        else:
+            nhapkho_cog = self.bot.get_cog("NhapKhoCog")
+            if nhapkho_cog is None:
+                return await interaction.response.send_message(
+                    "Không tìm thấy cog nhập kho.", ephemeral=True
+                )
+            perform_punishment = nhapkho_cog.perform_nhapkho
+
+        if not await begin_moderation_command(interaction):
+            return
+
+        result_lines = []
         reason_notes = []
         duration_text = format_duration_display(seconds, period)
-        for m in targets:
-            if not is_guild_owner(interaction):
-                if m.id == interaction.user.id:
-                    if interaction.user.id != config.SELF_BAN_ALLOWED_ID:
-                        msg.append("Đừng tự bắn vào chân thế chứ bro")
-                        continue
+        for member in targets:
+            rejection = moderation_target_rejection(interaction, member)
+            if rejection:
+                if punishment == PUNISHMENT_RADAO and member.id != interaction.user.id:
+                    reason_notes.append(rejection)
                 else:
-                    target_top_role = effective_top_role(m)
-                    if target_top_role > interaction.user.top_role:
-                        reason_notes.append(
-                            f"Bạn không thể timeout {m.mention} — người này có quyền cao hơn bạn."
-                        )
-                        continue
-                    if (
-                        target_top_role == interaction.user.top_role
-                        and not shares_allowed_role(interaction.user, m)
-                    ):
-                        reason_notes.append(
-                            f"Không thể timeout {m.mention} — người này có cùng role với bạn."
-                        )
-                        continue
-            asyncio.create_task(
-                self.perform_radao(interaction, m, seconds, period, reason)
-            )
-            msg.append(
-                f"Bonk🔨 bà zà mài {m.mention} ra đảo."
-            )
+                    result_lines.append(rejection)
+                continue
 
-        await interaction.followup.send(
-            view=RadaoCommandResultView(
-                msg,
+            asyncio.create_task(
+                perform_punishment(interaction, member, seconds, period, reason)
+            )
+            if punishment == PUNISHMENT_RADAO:
+                result_lines.append(f"Bonk🔨 bà zà mài {member.mention} ra đảo.")
+            else:
+                result_lines.append(
+                    f"{member.mention} đã bị gửi vào <#{config.NHAPKHO_LOG_CHANNEL_ID}>"
+                )
+
+        if punishment == PUNISHMENT_RADAO:
+            view = RadaoCommandResultView(
+                result_lines,
                 duration_text=duration_text,
                 reason=reason,
                 reason_lines=reason_notes,
             )
-        )
+        else:
+            view = NhapKhoCommandResultView(
+                result_lines,
+                duration_text=duration_text,
+                reason=reason,
+            )
+        await interaction.followup.send(view=view)
 
     @app_commands.command(
         name="ban", description="Ban khỉ khỏi server."
@@ -713,7 +779,8 @@ class RadaoCog(commands.Cog):
                 "Bạn không có quyền dùng lệnh này.", ephemeral=True
             )
 
-        await interaction.response.defer()
+        if not await begin_moderation_command(interaction):
+            return
         try:
             await interaction.guild.ban(user, reason=f"Slash /ban bởi {interaction.user}")
         except discord.Forbidden:

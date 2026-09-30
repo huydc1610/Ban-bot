@@ -1,4 +1,5 @@
 data/
+docs/
 tests
 docker-compose.yml
 dockerfile
