@@ -204,7 +204,6 @@ class GiaicuuCommandResultView(discord.ui.LayoutView):
         self.add_item(container)
 
 
-# ── Data helpers ─────────────────────────────────────────────────────
 def load_radao_data() -> dict:
     return load_json_dict(DATA_FILE)
 
@@ -213,16 +212,13 @@ def save_radao_data(data: dict):
     save_json_dict(DATA_FILE, data)
 
 
-# ── Cog ──────────────────────────────────────────────────────────────
 class RadaoCog(commands.Cog):
-    """Cog quản lý lệnh /radao và /giaicuu (cho khỉ ra đảo hoặc giải cứu)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.radao_data: dict = load_radao_data()
         self.temp_saved_roles: dict[int, list[int]] = {}
 
-    # ── Data management ──────────────────────────────────────────────
     def add_radao_member(
         self,
         member_id: int,
@@ -305,7 +301,6 @@ class RadaoCog(commands.Cog):
             await self.delete_radao_channel(guild, member_id)
         self.remove_radao_member(member_id)
 
-    # ── Role helpers ─────────────────────────────────────────────────
     async def restore_roles(
         self,
         guild: discord.Guild,
@@ -356,7 +351,6 @@ class RadaoCog(commands.Cog):
         nhapkho_released = await nhapkho_cog.release_member(guild, member)
         return radao_released, nhapkho_released
 
-    # ── Core radao logic ─────────────────────────────────────────────
     async def perform_radao(
         self,
         interaction: discord.Interaction,
@@ -474,7 +468,6 @@ class RadaoCog(commands.Cog):
             channel = self.find_radao_channel(guild, member.id)
             private_channel = moderator is not None or expire_action == RADAO_EXPIRE_ACTION_BAN
             if private_channel:
-                # /radao và autoban dùng quyền riêng, không kế thừa quyền mở từ category.
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(
                         view_channel=False,
@@ -586,7 +579,6 @@ class RadaoCog(commands.Cog):
 
         await self.handle_expired_radao(guild, member_id, info)
 
-    # ── Events (Listeners) ───────────────────────────────────────────
     @commands.Cog.listener()
     async def on_ready(self):
         print(f"[RadaoCog] Loaded — đang kiểm tra radao data...")
@@ -618,7 +610,6 @@ class RadaoCog(commands.Cog):
             if remaining <= 0:
                 await self.handle_expired_radao(guild, member_id, info)
             else:
-                # Còn hạn — đảm bảo role và resume timer
                 if member:
                     role_radao = guild.get_role(config.TARGET_ROLE_ID)
                     if role_radao and role_radao not in member.roles:
@@ -674,7 +665,6 @@ class RadaoCog(commands.Cog):
         self.temp_saved_roles.pop(user.id, None)
         self.remove_radao_member(user.id)
 
-    # ── Slash Commands ───────────────────────────────────────────────
     @app_commands.command(
         name="punish", description="Đưa một hoặc nhiều thành viên ra đảo hoặc nhập kho."
     )
@@ -833,6 +823,5 @@ class RadaoCog(commands.Cog):
         await interaction.followup.send(view=GiaicuuCommandResultView(msg))
 
 
-# ── Setup function (required for cog loading) ───────────────────────
 async def setup(bot: commands.Bot):
     await bot.add_cog(RadaoCog(bot))

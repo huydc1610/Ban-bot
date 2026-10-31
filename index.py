@@ -18,16 +18,24 @@ for stream in (sys.stdout, sys.stderr):
 load_dotenv()
 
 CONFIG_RELOAD_INTERVAL_SECONDS = float(os.getenv("CONFIG_RELOAD_INTERVAL_SECONDS", "2"))
-last_mtime = os.path.getmtime("config.py") if os.path.exists("config.py") else 0
+
+
+def get_config_mtime() -> float:
+    env_m = os.path.getmtime(".env") if os.path.exists(".env") else 0.0
+    cfg_m = os.path.getmtime("config.py") if os.path.exists("config.py") else 0.0
+    return max(env_m, cfg_m)
+
+
+last_mtime = get_config_mtime()
 last_config_check = 0.0
 commands_synced = False
 
-# ── Bot setup ────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
 
 async def auto_reload_config(interaction: discord.Interaction):
     global last_mtime, last_config_check
@@ -37,14 +45,14 @@ async def auto_reload_config(interaction: discord.Interaction):
     last_config_check = now
 
     try:
-        if os.path.exists("config.py"):
-            current_mtime = os.path.getmtime("config.py")
-            if current_mtime > last_mtime:
-                importlib.reload(config)
-                last_mtime = current_mtime
-                print("Đã tự động tải lại config.py (hot reload).")
+        current_mtime = get_config_mtime()
+        if current_mtime > last_mtime:
+            load_dotenv(override=True)
+            importlib.reload(config)
+            last_mtime = current_mtime
+            print("Đã tự động tải lại config.py và .env (hot reload).")
     except Exception as e:
-        print(f"Lỗi khi auto-reload config.py: {e}")
+        print(f"Lỗi khi auto-reload config: {e}")
     return True
 
 
@@ -66,7 +74,6 @@ async def on_app_command_error(
     except Exception:
         traceback.print_exc()
 
-# ── Cogs to load ─────────────────────────────────────────────────────
 INITIAL_COGS = [
     "cogs.radao",
     "cogs.nhapkho",
@@ -75,6 +82,7 @@ INITIAL_COGS = [
     "cogs.automessage",
     "cogs.emoji",
     "cogs.sticker",
+    "cogs.checkonline",
 ]
 
 
@@ -87,7 +95,6 @@ async def load_cogs():
             print(f"  ERR Failed to load {cog}: {e}")
 
 
-# ── Events ───────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
     global commands_synced
@@ -116,7 +123,6 @@ async def on_ready():
     print("--------------------------------------")
 
 
-# ── Entry point ──────────────────────────────────────────────────────
 async def main():
     async with bot:
         await load_cogs()

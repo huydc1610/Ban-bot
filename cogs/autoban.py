@@ -68,7 +68,6 @@ def is_message_from_member(message: discord.Message, member_id: int) -> bool:
 
 
 class AutobanCog(commands.Cog):
-    """Honeypot cog: nhắn vào kênh bẫy là ra đảo 1 tuần rồi ban nếu không được gỡ."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot

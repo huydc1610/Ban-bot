@@ -11,7 +11,7 @@ import config
 AUDIT_RETRY_DELAYS = (0.5, 1.0, 1.5)
 AUDIT_LOG_LIMIT = 10
 PROCESSED_ENTRY_LIMIT = 1_000
-VERIFY_EMOJI = "<a:chich_dien:1524723069476798648>"
+VERIFY_EMOJI = "<a:chich_dien:1554852195613155351>"
 
 
 def role_was_added(before: discord.Member, after: discord.Member, role_id: int) -> bool:

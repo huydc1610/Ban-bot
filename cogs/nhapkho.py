@@ -80,7 +80,6 @@ class NhapKhoCommandResultView(discord.ui.LayoutView):
         self.add_item(container)
 
 
-# ── Data helpers ─────────────────────────────────────────────────────
 def load_nhapkho_data() -> dict:
     return load_json_dict(DATA_FILE)
 
@@ -89,16 +88,13 @@ def save_nhapkho_data(data: dict):
     save_json_dict(DATA_FILE, data)
 
 
-# ── Cog ──────────────────────────────────────────────────────────────
 class NhapKhoCog(commands.Cog):
-    """Cog quản lý lệnh /nhapkho — gỡ role và gán role kho."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.nhapkho_data: dict = load_nhapkho_data()
         self.temp_saved_roles: dict[int, list[int]] = {}
 
-    # ── Data management ──────────────────────────────────────────────
     def add_nhapkho_member(
         self, member_id: int, reason: str, end_timestamp: int | None, saved_roles: list[int],
         log_message_id: int = None,
@@ -116,14 +112,12 @@ class NhapKhoCog(commands.Cog):
             del self.nhapkho_data[str(member_id)]
             save_nhapkho_data(self.nhapkho_data)
 
-    # ── Role helpers ─────────────────────────────────────────────────
     async def restore_roles(
         self,
         guild: discord.Guild,
         member: discord.Member,
         roles_to_remove: list[discord.Role] | None = None,
     ):
-        # Ưu tiên temp (in-memory), fallback sang persistent data
         if member.id in self.temp_saved_roles:
             role_ids = self.temp_saved_roles[member.id]
             del self.temp_saved_roles[member.id]
@@ -152,7 +146,6 @@ class NhapKhoCog(commands.Cog):
         self.remove_nhapkho_member(member.id)
         return True
 
-    # ── Core nhapkho logic ───────────────────────────────────────────
     async def perform_nhapkho(
         self,
         interaction: discord.Interaction,
@@ -167,7 +160,6 @@ class NhapKhoCog(commands.Cog):
         if not role_nhapkho:
             return
 
-        # Gỡ các role trong ROLES_TO_REMOVE và lưu lại
         removable_role_ids = roles_to_remove_ids()
         roles_to_remove = [r for r in member.roles if r.id in removable_role_ids]
         saved_role_ids = [r.id for r in roles_to_remove]
@@ -175,7 +167,6 @@ class NhapKhoCog(commands.Cog):
             self.temp_saved_roles[member.id] = saved_role_ids
 
         try:
-            # Gán role nhập kho
             await apply_role_update(
                 member,
                 roles_to_add=[role_nhapkho],
@@ -183,7 +174,6 @@ class NhapKhoCog(commands.Cog):
                 reason=reason,
             )
 
-            # Kick khỏi voice nếu đang trong voice
             if member.voice and member.voice.channel:
                 try:
                     await member.move_to(None, reason=f"Nhập kho: {reason}")
@@ -195,7 +185,6 @@ class NhapKhoCog(commands.Cog):
             end_time_timestamp = None if permanent else now + seconds
             discord_timestamp = format_discord_end_time(end_time_timestamp)
             duration_text = format_duration_display(seconds, period, now=now)
-            # Gửi thông báo vào channel log
             log_msg = None
             log_channel = guild.get_channel(config.NHAPKHO_LOG_CHANNEL_ID)
             if log_channel:
@@ -221,10 +210,8 @@ class NhapKhoCog(commands.Cog):
             if permanent:
                 return
 
-            # Chờ hết thời gian
             await asyncio.sleep(seconds)
 
-            # Xuất kho — xóa tin nhắn log, gỡ role, trả role
             member_id = member.id
             await self._delete_log_message(guild, member_id)
             member = guild.get_member(member_id)
@@ -237,7 +224,6 @@ class NhapKhoCog(commands.Cog):
             print(f"[NhapKho] Lỗi quy trình: {e}")
 
     async def _delete_log_message(self, guild: discord.Guild, member_id: int):
-        """Xóa tin nhắn log trong channel thông báo."""
         info = self.nhapkho_data.get(str(member_id), {})
         log_msg_id = info.get("log_message_id")
         if log_msg_id:
@@ -274,7 +260,6 @@ class NhapKhoCog(commands.Cog):
                 pass
         self.remove_nhapkho_member(member_id)
 
-    # ── Events (Listeners) ───────────────────────────────────────────
     @commands.Cog.listener()
     async def on_ready(self):
         print(f"[NhapKhoCog] Loaded — đang kiểm tra nhapkho data...")
@@ -304,7 +289,6 @@ class NhapKhoCog(commands.Cog):
                 continue
 
             if remaining <= 0:
-                # Hết hạn — xóa log, gỡ role nhập kho & trả role
                 await self._delete_log_message(guild, member_id)
                 if member:
                     role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
@@ -324,7 +308,6 @@ class NhapKhoCog(commands.Cog):
                         pass
                 self.remove_nhapkho_member(member_id)
             else:
-                # Còn hạn — đảm bảo role và resume timer
                 if member:
                     role_nhapkho = guild.get_role(config.NHAPKHO_ROLE_ID)
                     if role_nhapkho and role_nhapkho not in member.roles:
@@ -372,6 +355,5 @@ class NhapKhoCog(commands.Cog):
             except Exception:
                 pass
 
-# ── Setup function (required for cog loading) ───────────────────────
 async def setup(bot: commands.Bot):
     await bot.add_cog(NhapKhoCog(bot))
