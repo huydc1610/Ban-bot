@@ -38,9 +38,7 @@ chmod 600 .env
 nano .env
 ```
 
-Điền token vào `TOKEN`. Không gửi file `.env` qua Git, Discord, hoặc log. Nếu token từng bị lộ, hãy tạo token mới trong Discord Developer Portal trước khi deploy.
-
-Rà soát `config.py` và thay các ID Discord cho đúng server của bạn. File này được mount read-only vào container và bot sẽ tự reload khi thay đổi.
+Điền token vào `TOKEN` và rà soát các ID Discord trong `.env` cho đúng server của bạn. Không gửi file `.env` qua Git, Discord, hoặc log. Nếu token từng bị lộ, hãy tạo token mới trong Discord Developer Portal trước khi deploy.
 
 ## 3. Deploy lần đầu
 
@@ -60,22 +58,31 @@ git pull --ff-only
 bash scripts/deploy-vps.sh
 ```
 
-Nếu bản mới có lỗi, quay lại commit đã biết ổn định rồi chạy deploy lại:
+Nếu Git báo xung đột hoặc local có thay đổi không mong muốn:
 
 ```bash
-git log --oneline -n 10
-git checkout <commit-da-kiem-tra>
+git status
+git diff
+```
+
+Rollback về commit trước đó:
+
+```bash
+git checkout <commit-hash>
 bash scripts/deploy-vps.sh
 ```
 
-Sau khi xác nhận rollback, có thể tạo branch từ commit đó trước khi tiếp tục phát triển. Không dùng `git reset --hard` trên VPS vì có thể làm mất thay đổi cục bộ.
-
-## 5. Vận hành
+## 5. Vận hành thường ngày
 
 ```bash
-# Xem trạng thái và log
+# Xem log trực tiếp
+docker compose logs -f ban-bot
+
+# Xem 100 dòng log gần nhất
+docker compose logs --tail=100 ban-bot
+
+# Kiểm tra trạng thái container
 docker compose ps
-docker compose logs --tail=200 ban-bot
 
 # Restart sau khi đổi .env
 docker compose restart ban-bot
@@ -89,10 +96,10 @@ bash scripts/deploy-vps.sh
 
 ## 6. Sao lưu
 
-`data/`, `config.py`, và `.env` là dữ liệu cần giữ lại. Sao lưu chúng ở vị trí an toàn, ngoài repository:
+`data/` và `.env` là dữ liệu cần giữ lại. Sao lưu chúng ở vị trí an toàn, ngoài repository:
 
 ```bash
-tar -czf "$HOME/ban-bot-backup-$(date +%Y%m%d-%H%M%S).tar.gz" data config.py .env
+tar -czf "$HOME/ban-bot-backup-$(date +%Y%m%d-%H%M%S).tar.gz" data .env
 ```
 
 Khi restore, dừng bot, giải nén bản sao lưu vào thư mục project, rồi chạy `bash scripts/deploy-vps.sh`.

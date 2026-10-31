@@ -15,5 +15,4 @@ services:
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./data:/data
-      - ./config.py:/app/config.py:ro
     stop_grace_period: 30s
